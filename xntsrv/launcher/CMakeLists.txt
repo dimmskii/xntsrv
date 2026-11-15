@@ -10,7 +10,7 @@ add_executable(xntsrv xntsrv.cpp)
 add_executable(xntsrvw WIN32 xntsrv.cpp)
 
 foreach(target xntsrv xntsrvw)
-  target_link_libraries(${target} PRIVATE bcrypt shell32 ole32 advapi32 user32)
+  target_link_libraries(${target} PRIVATE bcrypt shell32 ole32 user32)
   if(MSVC)
     target_compile_options(${target} PRIVATE /W4 /WX /utf-8)
     # Static C runtime: a single file with no redistributable to install.

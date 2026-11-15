@@ -376,26 +376,7 @@ static wstring ResolveServer(const Options &o)
 
     wchar_t self[MAX_PATH * 4];
     DWORD len = GetModuleFileNameW(NULL, self, ARRAYSIZE(self));
-    wstring selfDir = DirName(wstring(self, len));
-    wstring beside = selfDir + L"\\xntsrv-server.exe";
-    if (FileExists(beside))
-        return beside;
-
-    /* Until XNTSrv ships its own server build, fall back to VcXsrv: first a
-     * copy sitting beside the launcher, then an installed one. */
-    if (FileExists(selfDir + L"\\vcxsrv.exe"))
-        return selfDir + L"\\vcxsrv.exe";
-
-    /* Until XNTSrv ships its own server build, fall back to an installed VcXsrv. */
-    wchar_t dir[MAX_PATH * 2];
-    DWORD size = sizeof dir;
-    if (RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\VcXsrv", L"Install_Dir_64",
-                     RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY, NULL, dir, &size) == ERROR_SUCCESS) {
-        wstring vcxsrv = wstring(dir) + L"\\vcxsrv.exe";
-        if (FileExists(vcxsrv))
-            return vcxsrv;
-    }
-    return beside;
+    return DirName(wstring(self, len)) + L"\\xntsrv-server.exe";
 }
 
 /* ---- WSL virtual machine lookup ---------------------------------------- */
@@ -619,8 +600,7 @@ static int Run(int argc, wchar_t **argv)
     }
 
     if (!FileExists(server)) {
-        Err(L"server not found: " + server +
-            L"\nInstall VcXsrv, or point --server at vcxsrv.exe, until XNTSrv ships its own server.");
+        Err(L"server not found: " + server);
         return 1;
     }
 
