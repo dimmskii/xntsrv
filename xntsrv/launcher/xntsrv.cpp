@@ -376,9 +376,15 @@ static wstring ResolveServer(const Options &o)
 
     wchar_t self[MAX_PATH * 4];
     DWORD len = GetModuleFileNameW(NULL, self, ARRAYSIZE(self));
-    wstring beside = DirName(wstring(self, len)) + L"\\xntsrv-server.exe";
+    wstring selfDir = DirName(wstring(self, len));
+    wstring beside = selfDir + L"\\xntsrv-server.exe";
     if (FileExists(beside))
         return beside;
+
+    /* Until XNTSrv ships its own server build, fall back to VcXsrv: first a
+     * copy sitting beside the launcher, then an installed one. */
+    if (FileExists(selfDir + L"\\vcxsrv.exe"))
+        return selfDir + L"\\vcxsrv.exe";
 
     /* Until XNTSrv ships its own server build, fall back to an installed VcXsrv. */
     wchar_t dir[MAX_PATH * 2];
@@ -434,7 +440,8 @@ static wstring FindWslVmId(wstring *detail)
             hr = wait(op, 5000, &doc);
         if (FAILED(hr)) {
             *detail = L"the Host Compute Service refused the query (" + Hex(hr) + L")";
-            if (hr == E_ACCESSDENIED)
+            /* 0x8037011B is HCS_E_ACCESS_DENIED. */
+            if (hr == E_ACCESSDENIED || hr == (HRESULT)0x8037011BL)
                 *detail += L"; listing VMs needs administrator or Hyper-V Administrators rights";
         } else if (doc) {
             *detail = wstring(L"Host Compute Service answered: ") + doc;
