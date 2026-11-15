@@ -1,11 +1,11 @@
-name: launcher
+name: windows
 
 on:
   push:
     branches: [master]
-    paths: ['xntsrv/launcher/**', '.github/workflows/launcher.yml']
+    paths: ['xntsrv/**', '!xntsrv/bridge/**', '.github/workflows/windows.yml']
   pull_request:
-    paths: ['xntsrv/launcher/**', '.github/workflows/launcher.yml']
+    paths: ['xntsrv/**', '!xntsrv/bridge/**', '.github/workflows/windows.yml']
 
 permissions:
   contents: read
@@ -16,20 +16,22 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          sparse-checkout: xntsrv/launcher
+          sparse-checkout: xntsrv
 
       - name: Configure
-        run: cmake -S xntsrv/launcher -B build -A x64
+        run: cmake -S xntsrv -B build -A x64
 
       - name: Build
         run: cmake --build build --config Release
 
       - name: Test
+        # Runners are elevated and thrown away afterwards, so the system test
+        # (real service, real registry keys) is safe to run here.
+        env:
+          XNTSRV_SYSTEM_TESTS: '1'
         run: ctest --test-dir build -C Release --output-on-failure
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: xntsrv-launcher-x64
-          path: |
-            build/Release/xntsrv.exe
-            build/Release/xntsrvw.exe
+          name: xntsrv-windows-x64
+          path: build/bin/Release/*.exe

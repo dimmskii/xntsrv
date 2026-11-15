@@ -1,5 +1,5 @@
 # Command-line tests for xntsrv, driven through --dry-run so no display is needed.
-# Run by ctest; XNTSRV is the built executable, EMULATOR an optional runner (wine).
+# Run by ctest; XNTSRV is the built executable.
 
 set(failures 0)
 set(S "C:\\x\\srv.exe")
@@ -7,7 +7,7 @@ set(G "{01234567-89ab-cdef-0123-456789abcdef}")
 
 # expect(<expected exit code> <regex the output must match> <args>...)
 function(expect code pattern)
-  execute_process(COMMAND ${EMULATOR} ${XNTSRV} ${ARGN}
+  execute_process(COMMAND ${XNTSRV} ${ARGN}
     RESULT_VARIABLE rc OUTPUT_VARIABLE out ERROR_VARIABLE err)
   string(REPLACE "\r" "" all "${out}${err}")
   if(NOT rc EQUAL code OR NOT all MATCHES "${pattern}")

@@ -6,14 +6,8 @@
  *
  * SPDX-License-Identifier: MIT
  */
-#ifndef UNICODE
-#define UNICODE
-#endif
-#ifndef _UNICODE
-#define _UNICODE
-#endif
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
+#include "../common/xntsrv-common.h"
+
 #include <bcrypt.h>
 #include <shellapi.h>
 #include <shlobj.h>
@@ -21,7 +15,6 @@
 #include <string>
 #include <vector>
 
-#define XNTSRV_VERSION L"0.1.0"
 #define DEFAULT_VSOCK_PORT 106000u
 #define COOKIE_LEN 16
 
@@ -34,7 +27,7 @@ static const wchar_t kHelp[] =
     L"  -d, --display=N         display number (default 0)\n"
     L"  -m, --mode=MODE         multiwindow (default) | desktop | fullscreen\n"
     L"  -l, --listen=LIST       comma-separated: hyperv (default), tcp, none\n"
-    L"      --vmid=ID           auto (default: current user's WSL VM) | any | {GUID}\n"
+    L"      --vmid=ID           auto (default: the running WSL VM) | any | {GUID}\n"
     L"      --vsock-port=PORT   Hyper-V socket port (default 106000)\n"
     L"      --no-auth           disable X authentication (server's -ac)\n"
     L"      --no-clipboard      disable clipboard sharing\n"
@@ -126,22 +119,6 @@ static bool ParseUnsigned(const wstring &s, unsigned max, unsigned *out)
     if (v > max)
         return false;
     *out = v;
-    return true;
-}
-
-static bool IsGuid(const wstring &s)
-{
-    if (s.size() != 38 || s[0] != L'{' || s[37] != L'}')
-        return false;
-    for (size_t i = 1; i < 37; i++) {
-        wchar_t c = s[i];
-        if (i == 9 || i == 14 || i == 19 || i == 24) {
-            if (c != L'-')
-                return false;
-        } else if (!((c >= L'0' && c <= L'9') || (c >= L'a' && c <= L'f') || (c >= L'A' && c <= L'F'))) {
-            return false;
-        }
-    }
     return true;
 }
 
@@ -246,7 +223,7 @@ static ParseResult Apply(const OptSpec &spec, const wstring &value, Options *o)
         if (!ParseListen(value, o))
             goto bad;
     } else if (name == L"vmid") {
-        if (value != L"auto" && value != L"any" && !IsGuid(value))
+        if (value != L"auto" && value != L"any" && !xnt::IsGuid(value))
             goto bad;
         o->vmid = value;
     } else if (name == L"vsock-port") {
@@ -379,78 +356,6 @@ static wstring ResolveServer(const Options &o)
     return DirName(wstring(self, len)) + L"\\xntsrv-server.exe";
 }
 
-/* ---- WSL virtual machine lookup ---------------------------------------- */
-
-static wstring Hex(HRESULT hr)
-{
-    wchar_t buf[16];
-    wsprintfW(buf, L"0x%08X", (unsigned)hr);
-    return buf;
-}
-
-/* Ask the Host Compute Service for the running WSL utility VM.  Returns a
- * braced GUID, or an empty string when there is none or the query is refused;
- * *detail then says which, for --verbose and the warning. */
-static wstring FindWslVmId(wstring *detail)
-{
-    typedef void *HCS_OPERATION;
-    typedef HCS_OPERATION(WINAPI *CreateOperationFn)(const void *, void *);
-    typedef HRESULT(WINAPI *EnumerateFn)(PCWSTR, HCS_OPERATION);
-    typedef HRESULT(WINAPI *WaitFn)(HCS_OPERATION, DWORD, PWSTR *);
-    typedef void(WINAPI *CloseFn)(HCS_OPERATION);
-
-    wstring id;
-    HMODULE dll = LoadLibraryExW(L"computecore.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
-    if (!dll) {
-        *detail = L"computecore.dll is not available (Hyper-V platform not installed?)";
-        return id;
-    }
-
-    CreateOperationFn create = (CreateOperationFn)(void *)GetProcAddress(dll, "HcsCreateOperation");
-    EnumerateFn enumerate = (EnumerateFn)(void *)GetProcAddress(dll, "HcsEnumerateComputeSystems");
-    WaitFn wait = (WaitFn)(void *)GetProcAddress(dll, "HcsWaitForOperationResult");
-    CloseFn close = (CloseFn)(void *)GetProcAddress(dll, "HcsCloseOperation");
-
-    if (create && enumerate && wait && close) {
-        HCS_OPERATION op = create(NULL, NULL);
-        PWSTR doc = NULL;
-
-        HRESULT hr = op ? enumerate(L"{\"Owners\":[\"WSL\"]}", op) : E_OUTOFMEMORY;
-
-        if (SUCCEEDED(hr))
-            hr = wait(op, 5000, &doc);
-        if (FAILED(hr)) {
-            *detail = L"the Host Compute Service refused the query (" + Hex(hr) + L")";
-            /* 0x8037011B is HCS_E_ACCESS_DENIED. */
-            if (hr == E_ACCESSDENIED || hr == (HRESULT)0x8037011BL)
-                *detail += L"; listing VMs needs administrator or Hyper-V Administrators rights";
-        } else if (doc) {
-            *detail = wstring(L"Host Compute Service answered: ") + doc;
-            /* The result is a JSON array of systems; take the first one's
-             * RuntimeId (the VM's Hyper-V socket address), else its Id. */
-            wstring json = doc;
-            for (const wchar_t *key : { L"\"RuntimeId\":\"", L"\"Id\":\"" }) {
-                size_t pos = json.find(key);
-                if (pos == wstring::npos)
-                    continue;
-                wstring guid = L"{" + json.substr(pos + wcslen(key), 36) + L"}";
-                if (IsGuid(guid)) {
-                    id = guid;
-                    break;
-                }
-            }
-        }
-        if (doc)
-            LocalFree(doc);
-        if (op)
-            close(op);
-    }
-    else
-        *detail = L"computecore.dll lacks the expected functions";
-    FreeLibrary(dll);
-    return id;
-}
-
 /* ---- X authentication -------------------------------------------------- */
 
 static wstring AuthFilePath()
@@ -560,17 +465,21 @@ static int Run(int argc, wchar_t **argv)
         break;
     }
 
-    /* Resolve which VM may connect.  "any" leaves the server on its wildcard. */
+    /* Resolve which VM may connect.  Only administrators may look the WSL VM
+     * up directly, so ask the XNTSrv service first. */
     wstring vmid;
     if (o.listenHyperv && o.vmid != L"any") {
         if (o.vmid == L"auto") {
             wstring detail;
-            vmid = FindWslVmId(&detail);
+            vmid = xnt::AskServiceForVmId(&detail);
+            if (vmid.empty() && xnt::IsElevated())
+                vmid = xnt::FindWslVmId(&detail);
+            if (vmid.empty()) {
+                Err(L"cannot identify the WSL VM: " + detail);
+                return 1;
+            }
             if (o.verbose)
-                Err(detail);
-            if (vmid.empty())
-                Err(L"warning: could not identify the WSL VM; accepting Hyper-V connections from any VM"
-                    L" (use --verbose for the reason)");
+                Err(L"WSL VM is " + vmid);
         } else {
             vmid = o.vmid;
         }
