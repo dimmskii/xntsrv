@@ -1,0 +1,47 @@
+name: bridge
+
+on:
+  push:
+    branches: [master]
+    paths: ['xntsrv/bridge/**', '.github/workflows/bridge.yml']
+  pull_request:
+    paths: ['xntsrv/bridge/**', '.github/workflows/bridge.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: xntsrv/bridge
+
+      - name: Install musl
+        run: sudo apt-get update -q && sudo apt-get install -y -q musl-tools
+
+      - name: Build static binary
+        working-directory: xntsrv/bridge
+        # musl-gcc does not see the kernel headers (linux/vm_sockets.h) by default.
+        run: >
+          make static CC=musl-gcc
+          CFLAGS="-O2 -Wall -Wextra -Werror -idirafter /usr/include -idirafter /usr/include/x86_64-linux-gnu"
+
+      - name: Test over a Unix socket
+        working-directory: xntsrv/bridge
+        run: ./test.sh ./xntsrv-bridge unix
+
+      - name: Test over vsock loopback (when the runner has it)
+        working-directory: xntsrv/bridge
+        run: |
+          if sudo modprobe vsock_loopback 2>/dev/null; then
+            ./test.sh ./xntsrv-bridge vsock
+          else
+            echo "::notice::vsock_loopback not available on this runner; vsock test skipped"
+          fi
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: xntsrv-bridge-x86_64
+          path: xntsrv/bridge/xntsrv-bridge
