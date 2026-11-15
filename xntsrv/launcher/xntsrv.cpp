@@ -472,8 +472,7 @@ static bool EnsureAuthFile(const wstring &path, unsigned display)
         return false;
 
     std::string entry;
-    entry.push_back((char)0xff); /* FamilyWild */
-    entry.push_back((char)0xff);
+    entry.append(2, '\xff'); /* FamilyWild */
     PutCounted(&entry, "");
     PutCounted(&entry, std::to_string(display));
     PutCounted(&entry, "MIT-MAGIC-COOKIE-1");
