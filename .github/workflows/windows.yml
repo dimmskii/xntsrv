@@ -3,20 +3,42 @@ name: windows
 on:
   push:
     branches: [master]
-    paths: ['xntsrv/**', '!xntsrv/bridge/**', '.github/workflows/windows.yml']
+    paths: ['xntsrv/**', '.github/workflows/windows.yml']
   pull_request:
-    paths: ['xntsrv/**', '!xntsrv/bridge/**', '.github/workflows/windows.yml']
+    paths: ['xntsrv/**', '.github/workflows/windows.yml']
 
 permissions:
   contents: read
 
 jobs:
+  # The installer carries the Linux-side forwarder, so build it first.
+  bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: xntsrv/bridge
+      - run: sudo apt-get update -q && sudo apt-get install -y -q musl-tools
+      - name: Build static binary
+        working-directory: xntsrv/bridge
+        run: >
+          make static CC=musl-gcc
+          CFLAGS="-O2 -Wall -Wextra -Werror -idirafter /usr/include -idirafter /usr/include/x86_64-linux-gnu"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bridge
+          path: xntsrv/bridge/xntsrv-bridge
+
   build:
+    needs: bridge
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          sparse-checkout: xntsrv
+          # xorg-server/hw/xwin holds upstream's icon, which the installer uses.
+          sparse-checkout: |
+            xntsrv
+            xorg-server/hw/xwin
 
       - name: Configure
         run: cmake -S xntsrv -B build -A x64
@@ -35,3 +57,32 @@ jobs:
         with:
           name: xntsrv-windows-x64
           path: build/bin/Release/*.exe
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: bridge
+          path: build/bridge
+
+      - name: Stage installer contents
+        run: xntsrv/installer/stage.ps1 -BinDir build/bin/Release -Bridge build/bridge/xntsrv-bridge -OutDir build/stage
+
+      - name: Build installer
+        run: |
+          $makensis = (Get-Command makensis -ErrorAction SilentlyContinue).Source
+          if (-not $makensis) { $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe" }
+          if (-not (Test-Path $makensis)) {
+            choco install nsis -y --no-progress
+            $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          }
+          $version = (Select-String -Path xntsrv/common/xntsrv-common.h -Pattern 'XNTSRV_VERSION L"([^"]+)"').Matches[0].Groups[1].Value
+          $root = (Get-Location).Path
+          & $makensis "/DVERSION=$version" "/DSTAGE=$root\build\stage" "/DOUTFILE=$root\build\xntsrv-$version-setup.exe" xntsrv\installer\xntsrv.nsi
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed with exit code $LASTEXITCODE" }
+
+      - name: Test installer
+        run: xntsrv/installer/test.ps1 -Setup (Get-ChildItem build/xntsrv-*-setup.exe).FullName
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: xntsrv-setup
+          path: build/xntsrv-*-setup.exe
