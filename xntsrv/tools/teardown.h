@@ -72,11 +72,11 @@ static inline bool RemoveMachineSetup()
         CloseServiceHandle(scm);
     }
 
-    HRESULT hr = SetFirewallRule(L"");
+    HRESULT hr = SetFirewallRules(L"");
     if (SUCCEEDED(hr)) {
-        Out(L"Firewall:              rule removed");
+        Out(L"Firewall:              rules removed");
     } else {
-        Err(L"cannot remove the firewall rule (" + xnt::Hex((DWORD)hr) + L")");
+        Err(L"cannot remove the firewall rules (" + xnt::Hex((DWORD)hr) + L")");
         ok = false;
     }
 

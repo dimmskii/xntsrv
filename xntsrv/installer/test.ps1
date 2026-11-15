@@ -19,6 +19,7 @@ function ServiceState { (Get-Service XNTSrvWSL -ErrorAction SilentlyContinue).St
 foreach ($pass in 'install', 'install over existing') {
     Check "$pass exits 0" ((Run $Setup @('/S')) -eq 0)
     Check 'service running' ((ServiceState) -eq 'Running')
+    Check 'TCP service installed but stopped' ((Get-Service XNTSrvTCP -ErrorAction SilentlyContinue).Status -eq 'Stopped')
     foreach ($f in 'xntsrv.exe', 'xntsrvw.exe', 'xntsrv-server.exe', 'xntsrv-service.exe', 'xntsrv-register.exe',
                    'xntsrv-unregister.exe', 'xntsrv-reset.exe', 'xkbcomp.exe', 'vcruntime140.dll',
                    'guest\xntsrv-bridge', 'NOTICE.txt', 'uninstall.exe', 'xkbdata', 'fonts', 'locale') {

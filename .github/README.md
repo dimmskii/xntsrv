@@ -20,7 +20,15 @@ XNTSrv is VcXsrv with a different front end and better plumbing for virtual mach
 
 - **`xntsrv-server.exe`** is the X server. It listens on `127.0.0.1` only.
 - **`xntsrv.exe`** starts it with a conventional command line (`xntsrv --help`). `xntsrvw.exe` is the same program for shortcuts, with no console window.
-- **XNTSrv services** carry connections to the server from outside, one Windows service per route, each manageable in `services.msc`. So far: **XNTSrv WSL**, which listens on the Hyper-V socket of the running WSL virtual machine and follows WSL restarts.
+- **XNTSrv services** carry connections to the server from outside, one Windows service per route, each manageable in `services.msc`:
+
+  | Service | Starts | Route |
+  |---|---|---|
+  | XNTSrv WSL | with Windows | The Hyper-V socket of the running WSL virtual machine; follows WSL restarts. |
+  | XNTSrv TCP | only when you start it | This computer's network addresses, limited to the local subnet by a firewall rule. To restrict it further, list addresses or adapter names in the `Listen` value (`REG_MULTI_SZ`) under `HKLM\SOFTWARE\XNTSrv\TCP`. |
+  | XNTSrv VMware | placeholder | Not implemented yet. |
+  | XNTSrv Session | placeholder | Not implemented yet: will start a server for each user at login. |
+
 - **`xntsrv-bridge`** runs inside the Linux guest and forwards `/tmp/.X11-unix/X0` to the host.
 - **`xntsrv-register`**, **`xntsrv-unregister`** and **`xntsrv-reset`** set up, remove, and wipe the machine-wide parts. The installer calls the first two.
 

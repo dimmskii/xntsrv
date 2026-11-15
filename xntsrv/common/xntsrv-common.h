@@ -29,18 +29,24 @@ struct ServiceInfo {
     const wchar_t *name;        /* service name, as used by sc.exe */
     const wchar_t *mode;        /* argument passed to xntsrv-service.exe */
     const wchar_t *displayName; /* shown in services.msc */
+    bool autoStart;             /* start with Windows; otherwise only when someone starts it */
     const wchar_t *description;
 };
 const ServiceInfo kServices[] = {
-    { L"XNTSrvWSL", L"wsl", L"XNTSrv WSL",
+    { L"XNTSrvWSL", L"wsl", L"XNTSrv WSL", true,
       L"Carries connections from WSL to the XNTSrv X server over the Hyper-V socket. "
       L"Stop it to cut WSL off from the X server." },
+    { L"XNTSrvTCP", L"tcp", L"XNTSrv TCP", false,
+      L"Carries connections from the network to the XNTSrv X server. Not started unless you start it. "
+      L"Listens on every network address of this computer, or only on the addresses and adapter names "
+      L"listed in HKLM\\SOFTWARE\\XNTSrv\\TCP, value Listen." },
+    { L"XNTSrvVMware", L"vmware", L"XNTSrv VMware", false,
+      L"Placeholder, not implemented yet. Will carry connections from VMware guests to the XNTSrv X server." },
+    { L"XNTSrvSession", L"session", L"XNTSrv Session", false,
+      L"Placeholder, not implemented yet. Will start an XNTSrv X server in the background for each user who logs in." },
 };
 /* Services earlier versions installed; removed on register and unregister. */
 const wchar_t *const kRetiredServices[] = { L"XNTSrv" };
-
-/* Inbound-block rule for the server: it must only be reached over loopback. */
-const wchar_t kFirewallRule[] = L"XNTSrv server (block inbound)";
 
 /* Port the Linux bridge connects to; kHvSocketKey below is this port's ID. */
 const unsigned kVsockPort = 106000;
@@ -49,6 +55,8 @@ const unsigned kXBasePort = 6000;
 
 /* Machine-wide registry entries, all under HKEY_LOCAL_MACHINE. */
 const wchar_t kInstallKey[] = L"SOFTWARE\\XNTSrv";
+/* Settings of the XNTSrv TCP service. */
+const wchar_t kTcpKey[] = L"SOFTWARE\\XNTSrv\\TCP";
 const wchar_t kAppPathsKey[] = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\xntsrv.exe";
 /* Hyper-V socket service ID for the default vsock port, 106000 (0x19E10).
  * Windows only delivers guest connections to registered service IDs. */

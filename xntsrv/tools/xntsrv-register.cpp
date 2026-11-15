@@ -48,8 +48,9 @@ static bool InstallService(SC_HANDLE scm, const xnt::ServiceInfo &info, const ws
     wstring command = L"\"" + binary + L"\" " + info.mode;
     const DWORD access = SERVICE_CHANGE_CONFIG | SERVICE_START | SERVICE_QUERY_STATUS;
     SC_HANDLE svc = CreateServiceW(scm, info.name, info.displayName, access,
-                                   SERVICE_WIN32_OWN_PROCESS, SERVICE_AUTO_START, SERVICE_ERROR_NORMAL,
-                                   command.c_str(), NULL, NULL, NULL, NULL, NULL);
+                                   SERVICE_WIN32_OWN_PROCESS,
+                                   info.autoStart ? SERVICE_AUTO_START : SERVICE_DEMAND_START,
+                                   SERVICE_ERROR_NORMAL, command.c_str(), NULL, NULL, NULL, NULL, NULL);
     bool ok = svc != NULL;
     if (!svc && GetLastError() == ERROR_SERVICE_EXISTS) {
         /* Already installed: point it at this copy.  Its start type is left
@@ -66,6 +67,12 @@ static bool InstallService(SC_HANDLE scm, const xnt::ServiceInfo &info, const ws
         wstring text = info.description;
         SERVICE_DESCRIPTIONW description = { &text[0] };
         ChangeServiceConfig2W(svc, SERVICE_CONFIG_DESCRIPTION, &description);
+
+        if (!info.autoStart) {
+            Out(wstring(L"Service ") + info.displayName + L":    installed, not started");
+            CloseServiceHandle(svc);
+            return true;
+        }
 
         SERVICE_STATUS status = {};
         if (StartServiceW(svc, 0, NULL) || GetLastError() == ERROR_SERVICE_ALREADY_RUNNING) {
@@ -138,11 +145,11 @@ int wmain(int argc, wchar_t **argv)
     else
         ok = false;
 
-    HRESULT hr = SetFirewallRule(dir + L"\\xntsrv-server.exe");
+    HRESULT hr = SetFirewallRules(dir);
     if (SUCCEEDED(hr)) {
-        Out(L"Firewall:              inbound connections to the server blocked");
+        Out(L"Firewall:              server closed to the network; TCP service limited to the local subnet");
     } else {
-        Err(L"cannot add the firewall rule (" + xnt::Hex((DWORD)hr) + L")");
+        Err(L"cannot add the firewall rules (" + xnt::Hex((DWORD)hr) + L")");
         ok = false;
     }
 

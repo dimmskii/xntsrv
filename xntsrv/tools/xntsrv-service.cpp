@@ -8,19 +8,28 @@
  * relays the bytes to the server; it does not interpret them, so X
  * authentication still happens between the client and the server.
  *
- *   wsl   Listens on the Hyper-V socket of the running WSL virtual machine.
- *         Finding that VM needs administrator rights, which is why this is a
- *         service.  It follows WSL restarts by listening on the new VM.
+ *   wsl      Listens on the Hyper-V socket of the running WSL virtual machine.
+ *            Finding that VM needs administrator rights, which is why this is
+ *            a service.  It follows WSL restarts by listening on the new VM.
+ *   tcp      Listens on this computer's network addresses (never loopback) and
+ *            follows them as adapters come and go.  Limited to the addresses
+ *            or adapter names in HKLM\SOFTWARE\XNTSrv\TCP\Listen when set.
+ *   vmware   Placeholder: will listen on the VMware VMCI socket.
+ *   session  Placeholder: will start an X server for each user who logs in.
  *
  * Installed and removed by xntsrv-register and xntsrv-unregister.
  *
  * SPDX-License-Identifier: MIT
  */
+#define FD_SETSIZE 128
 #include "../common/xntsrv-common.h"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <iphlpapi.h>
 #include <objbase.h>
+
+#include <vector>
 
 #ifndef AF_HYPERV
 #define AF_HYPERV 34
@@ -88,6 +97,7 @@ static void Relay(SOCKET a, SOCKET b)
         HeapFree(GetProcessHeap(), 0, buf);
 }
 
+/* Thread: connect an accepted client to the X server and relay. */
 static DWORD WINAPI Connection(LPVOID param)
 {
     SOCKET client = (SOCKET)(UINT_PTR)param;
@@ -109,6 +119,36 @@ static DWORD WINAPI Connection(LPVOID param)
         closesocket(server);
     closesocket(client);
     return 0;
+}
+
+/* Accept on the given listeners for a few seconds, handing each connection to
+ * its own thread.  Returns false if a listener failed and should be rebuilt. */
+static bool AcceptFor(const std::vector<SOCKET> &listeners, DWORD milliseconds)
+{
+    ULONGLONG until = GetTickCount64() + milliseconds;
+
+    while (!Stopping() && GetTickCount64() < until) {
+        fd_set readable;
+        timeval wait = { 0, 500000 };
+        FD_ZERO(&readable);
+        for (SOCKET s : listeners)
+            FD_SET(s, &readable);
+        if (select(0, &readable, NULL, NULL, &wait) <= 0)
+            continue;
+        for (SOCKET s : listeners) {
+            if (!FD_ISSET(s, &readable))
+                continue;
+            SOCKET client = accept(s, NULL, NULL);
+            if (client == INVALID_SOCKET)
+                return false;
+            HANDLE thread = CreateThread(NULL, 0, Connection, (LPVOID)(UINT_PTR)client, 0, NULL);
+            if (thread)
+                CloseHandle(thread);
+            else
+                closesocket(client);
+        }
+    }
+    return true;
 }
 
 /* ---- wsl mode ---------------------------------------------------------- */
@@ -153,30 +193,150 @@ static void ServeWsl()
 
         if (listener == INVALID_SOCKET) {
             WaitForSingleObject(g_stop, 3000);
-            continue;
-        }
-
-        /* Accept for a few seconds, then go round and look at the VM again. */
-        ULONGLONG until = GetTickCount64() + 3000;
-        while (!Stopping() && GetTickCount64() < until) {
-            fd_set readable;
-            timeval wait = { 0, 500000 };
-            FD_ZERO(&readable);
-            FD_SET(listener, &readable);
-            if (select(0, &readable, NULL, NULL, &wait) <= 0)
-                continue;
-            SOCKET client = accept(listener, NULL, NULL);
-            if (client == INVALID_SOCKET)
-                break;
-            HANDLE thread = CreateThread(NULL, 0, Connection, (LPVOID)(UINT_PTR)client, 0, NULL);
-            if (thread)
-                CloseHandle(thread);
-            else
-                closesocket(client);
+        } else if (!AcceptFor({ listener }, 3000)) {
+            closesocket(listener);
+            listener = INVALID_SOCKET;
+            boundVm.clear();
         }
     }
     if (listener != INVALID_SOCKET)
         closesocket(listener);
+}
+
+/* ---- tcp mode ---------------------------------------------------------- */
+
+struct TcpListener {
+    std::wstring address; /* as text, the key for matching */
+    SOCKET socket;
+};
+
+/* The optional allow-list: addresses or adapter names, one per line of a
+ * REG_MULTI_SZ.  Empty means every network address of this computer. */
+static std::vector<std::wstring> ReadListenFilter()
+{
+    std::vector<std::wstring> entries;
+    wchar_t buf[4096];
+    DWORD size = sizeof buf - 2 * sizeof(wchar_t);
+
+    ZeroMemory(buf, sizeof buf);
+    if (RegGetValueW(HKEY_LOCAL_MACHINE, xnt::kTcpKey, L"Listen", RRF_RT_REG_MULTI_SZ, NULL, buf, &size) == ERROR_SUCCESS)
+        for (const wchar_t *p = buf; *p; p += lstrlenW(p) + 1)
+            entries.push_back(p);
+    return entries;
+}
+
+static bool Listed(const std::vector<std::wstring> &filter, const std::wstring &value)
+{
+    for (const std::wstring &entry : filter)
+        if (lstrcmpiW(entry.c_str(), value.c_str()) == 0)
+            return true;
+    return false;
+}
+
+/* Bring `listeners` in line with the addresses this computer has right now. */
+static void SyncTcpListeners(std::vector<TcpListener> *listeners)
+{
+    std::vector<std::wstring> filter = ReadListenFilter();
+    std::vector<std::wstring> present;
+    ULONG size = 64 * 1024;
+    std::vector<BYTE> buf(size);
+    IP_ADAPTER_ADDRESSES *adapters = (IP_ADAPTER_ADDRESSES *)buf.data();
+    const ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
+
+    if (GetAdaptersAddresses(AF_UNSPEC, flags, NULL, adapters, &size) == ERROR_BUFFER_OVERFLOW) {
+        buf.resize(size);
+        adapters = (IP_ADAPTER_ADDRESSES *)buf.data();
+        if (GetAdaptersAddresses(AF_UNSPEC, flags, NULL, adapters, &size) != NO_ERROR)
+            adapters = NULL;
+    }
+
+    for (IP_ADAPTER_ADDRESSES *a = adapters; a; a = a->Next) {
+        /* Loopback belongs to the X server itself. */
+        if (a->OperStatus != IfOperStatusUp || a->IfType == IF_TYPE_SOFTWARE_LOOPBACK)
+            continue;
+        for (IP_ADAPTER_UNICAST_ADDRESS *u = a->FirstUnicastAddress; u; u = u->Next) {
+            sockaddr_storage addr = {};
+            int len = u->Address.iSockaddrLength;
+            wchar_t text[INET6_ADDRSTRLEN] = L"";
+
+            if (len > (int)sizeof addr)
+                continue;
+            CopyMemory(&addr, u->Address.lpSockaddr, (size_t)len);
+            if (addr.ss_family == AF_INET) {
+                sockaddr_in *in = (sockaddr_in *)&addr;
+                in->sin_port = htons((u_short)xnt::kXBasePort);
+                InetNtopW(AF_INET, &in->sin_addr, text, ARRAYSIZE(text));
+            } else if (addr.ss_family == AF_INET6) {
+                sockaddr_in6 *in6 = (sockaddr_in6 *)&addr;
+                if (IN6_IS_ADDR_LINKLOCAL(&in6->sin6_addr))
+                    continue;
+                in6->sin6_port = htons((u_short)xnt::kXBasePort);
+                InetNtopW(AF_INET6, &in6->sin6_addr, text, ARRAYSIZE(text));
+            } else {
+                continue;
+            }
+            if (!filter.empty() && !Listed(filter, text) && !Listed(filter, a->FriendlyName))
+                continue;
+            present.push_back(text);
+            if (listeners->size() >= FD_SETSIZE - 1)
+                continue;
+
+            bool have = false;
+            for (const TcpListener &l : *listeners)
+                have = have || l.address == text;
+            if (have)
+                continue;
+
+            /* The stock X server holds this port on every address with
+             * SO_REUSEADDR set; binding one specific address the same way
+             * coexists with it and takes that address's connections. */
+            SOCKET s = socket(addr.ss_family, SOCK_STREAM, IPPROTO_TCP);
+            int on = 1;
+            if (s == INVALID_SOCKET)
+                continue;
+            setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char *)&on, sizeof on);
+            if (addr.ss_family == AF_INET6)
+                setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, (const char *)&on, sizeof on);
+            if (bind(s, (sockaddr *)&addr, len) == 0 && listen(s, SOMAXCONN) == 0)
+                listeners->push_back({ text, s });
+            else
+                closesocket(s);
+        }
+    }
+
+    /* Drop listeners whose address has gone or is no longer allowed. */
+    for (size_t i = listeners->size(); i-- > 0;) {
+        bool keep = false;
+        for (const std::wstring &p : present)
+            keep = keep || p == (*listeners)[i].address;
+        if (!keep) {
+            closesocket((*listeners)[i].socket);
+            listeners->erase(listeners->begin() + (ptrdiff_t)i);
+        }
+    }
+}
+
+static void ServeTcp()
+{
+    std::vector<TcpListener> listeners;
+
+    while (!Stopping()) {
+        SyncTcpListeners(&listeners);
+
+        std::vector<SOCKET> sockets;
+        for (const TcpListener &l : listeners)
+            sockets.push_back(l.socket);
+
+        if (sockets.empty()) {
+            WaitForSingleObject(g_stop, 3000);
+        } else if (!AcceptFor(sockets, 3000)) {
+            for (const TcpListener &l : listeners)
+                closesocket(l.socket);
+            listeners.clear();
+        }
+    }
+    for (const TcpListener &l : listeners)
+        closesocket(l.socket);
 }
 
 /* ---- service plumbing -------------------------------------------------- */
@@ -215,7 +375,12 @@ static void WINAPI ServiceMain(DWORD, LPWSTR *)
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) == 0) {
         Report(SERVICE_RUNNING);
-        ServeWsl(); /* the only mode so far */
+        if (lstrcmpW(g_service->mode, L"wsl") == 0)
+            ServeWsl();
+        else if (lstrcmpW(g_service->mode, L"tcp") == 0)
+            ServeTcp();
+        else
+            WaitForSingleObject(g_stop, INFINITE); /* placeholder services do nothing yet */
         WSACleanup();
     }
     /* Connections still being relayed end with the process. */

@@ -35,6 +35,9 @@ function(expect_input line code pattern)
 endfunction()
 
 set(FW netsh advfirewall firewall show rule "name=XNTSrv server (block inbound)")
+set(FW_TCP netsh advfirewall firewall show rule "name=XNTSrv TCP service (local subnet)")
+set(TCP powershell -NoProfile -ExecutionPolicy Bypass -File ${CMAKE_CURRENT_LIST_DIR}/tcp-test.ps1 -Expect)
+set(TCP_KEY "HKLM\\SOFTWARE\\XNTSrv\\TCP")
 
 # Start from a clean machine.
 execute_process(COMMAND ${BIN}/xntsrv-reset.exe --yes OUTPUT_QUIET ERROR_QUIET)
@@ -49,12 +52,38 @@ execute_process(COMMAND sc create XNTSrv binPath= "${BIN}/xntsrv-service.exe" OU
 expect(0 "Service XNTSrv WSL: +installed and running" ${BIN}/xntsrv-register.exe)
 expect(0 "RUNNING" sc query XNTSrvWSL)
 expect(0 "xntsrv-service.exe\" wsl" sc qc XNTSrvWSL)
+expect(0 "AUTO_START" sc qc XNTSrvWSL)
+# The other routes are installed but stay off until someone starts them.
+foreach(svc TCP VMware Session)
+  expect(0 "STOPPED" sc query XNTSrv${svc})
+  expect(0 "DEMAND_START" sc qc XNTSrv${svc})
+endforeach()
 expect(1060 "" sc query XNTSrv)
 expect(0 "ElementName +REG_SZ +XNTSrv" reg query "${HV}")
 expect(0 "xntsrv\\.exe" reg query "${APP}" /ve)
 expect(0 "InstallDir" reg query "HKLM\\SOFTWARE\\XNTSrv")
 expect(0 "Block.*xntsrv-server.exe|xntsrv-server.exe.*Block" ${FW} verbose)
-expect(0 "Service XNTSrv WSL: +installed and running" ${BIN}/xntsrv-register.exe)   # repeatable
+expect(0 "LocalSubnet.*6000.*Allow" ${FW_TCP} verbose)
+
+# Placeholder services start and stop like any other.
+expect(0 "" sc start XNTSrvSession)
+execute_process(COMMAND ${CMAKE_COMMAND} -E sleep 2)
+expect(0 "RUNNING" sc query XNTSrvSession)
+expect(0 "" sc stop XNTSrvSession)
+
+# The TCP route: off, on, limited to an address this machine does not have,
+# unlimited again, off.
+expect(0 "^direct" ${TCP} direct)
+expect(0 "" sc start XNTSrvTCP)
+expect(0 "^relayed" ${TCP} relayed)
+expect(0 "" reg add "${TCP_KEY}" /v Listen /t REG_MULTI_SZ /d 203.0.113.9 /f)
+expect(0 "^direct" ${TCP} direct)
+expect(0 "" reg delete "${TCP_KEY}" /v Listen /f)
+expect(0 "^relayed" ${TCP} relayed)
+expect(0 "" sc stop XNTSrvTCP)
+execute_process(COMMAND ${CMAKE_COMMAND} -E sleep 2)
+expect(0 "^direct" ${TCP} direct)
+expect(0 "Service XNTSrv WSL: +installed and running.*Service XNTSrv TCP: +installed, not started" ${BIN}/xntsrv-register.exe)   # repeatable
 
 # A service the administrator disabled stays disabled across a re-register.
 execute_process(COMMAND sc stop XNTSrvWSL OUTPUT_QUIET ERROR_QUIET)
@@ -66,9 +95,11 @@ execute_process(COMMAND sc config XNTSrvWSL start= auto OUTPUT_QUIET ERROR_QUIET
 # Unregister keeps user settings.
 file(MAKE_DIRECTORY "$ENV{LOCALAPPDATA}/XNTSrv/sub")
 file(WRITE "$ENV{LOCALAPPDATA}/XNTSrv/sub/keep.txt" "x")
-expect(0 "Service XNTSrv WSL: +removed.*Firewall: +rule removed" ${BIN}/xntsrv-unregister.exe)
+expect(0 "Service XNTSrv WSL: +removed.*Service XNTSrv Session: +removed.*Firewall: +rules removed" ${BIN}/xntsrv-unregister.exe)
 expect(1060 "" sc query XNTSrvWSL)
+expect(1060 "" sc query XNTSrvTCP)
 expect(1 "" ${FW})
+expect(1 "" ${FW_TCP})
 expect(1 "" reg query "${HV}")
 expect(1 "" reg query "HKLM\\SOFTWARE\\XNTSrv")
 if(NOT EXISTS "$ENV{LOCALAPPDATA}/XNTSrv/sub/keep.txt")
