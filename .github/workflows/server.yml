@@ -1,0 +1,82 @@
+name: server
+
+# Builds the X server from source.  Slow, so it runs on demand and when the
+# build recipe itself changes, not on every push.
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths: ['xntsrv/build/**', '.github/workflows/server.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Upstream targets Visual Studio 2022 (toolset v143).
+    runs-on: windows-2022
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.9'
+
+      - name: Install build tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Upstream's makefiles call these two by fixed path.
+          cmd /c mklink /J C:\Python39 "$env:pythonLocation"
+          C:\Python39\python.exe -m pip install --quiet lxml mako
+          $zip = "$env:RUNNER_TEMP\winflexbison.zip"
+          Invoke-WebRequest https://github.com/lexxmark/winflexbison/releases/download/v2.5.25/win_flex_bison-2.5.25.zip -OutFile $zip
+          $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
+          Write-Output "winflexbison sha256: $hash"
+          Expand-Archive $zip -DestinationPath C:\winflexbison
+          choco install nasm jom gperf -y --no-progress
+          # Unix tools the makefiles use (sed, awk, ...), after everything else
+          # on PATH so that MSVC's link.exe is not shadowed.
+          Add-Content $env:GITHUB_PATH 'C:\Program Files\NASM'
+          $env:PATH -split ';' | Select-String -SimpleMatch 'Strawberry'
+          Write-Output "UNIXTOOLS=C:\Program Files\Git\usr\bin" >> $env:GITHUB_ENV
+
+      - name: freetype
+        shell: cmd
+        run: xntsrv\build\build-server.cmd freetype
+
+      - name: openssl
+        shell: cmd
+        run: |
+          set "PATH=%PATH%;%UNIXTOOLS%"
+          xntsrv\build\build-server.cmd openssl
+
+      - name: pthreads
+        shell: cmd
+        run: xntsrv\build\build-server.cmd pthreads
+
+      - name: mhmake
+        shell: cmd
+        run: xntsrv\build\build-server.cmd mhmake
+
+      - name: server
+        shell: cmd
+        run: |
+          set "PATH=%PATH%;%UNIXTOOLS%"
+          xntsrv\build\build-server.cmd server > server-build.log 2>&1
+          set RC=%ERRORLEVEL%
+          powershell -NoProfile -Command "Get-Content server-build.log -Tail 150"
+          exit /b %RC%
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: server-build-log
+          path: server-build.log
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: xntsrv-server-x64
+          path: xorg-server/obj64/servrelease/vcxsrv.exe
