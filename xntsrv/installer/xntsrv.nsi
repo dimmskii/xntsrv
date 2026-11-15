@@ -63,7 +63,7 @@ Section "XNTSrv"
   SetRegView 64
   SetShellVarContext all
 
-  ; Stop a previous install's service so its files can be replaced.
+  ; Stop a previous install's services so their files can be replaced.
   ${If} ${FileExists} "$INSTDIR\xntsrv-unregister.exe"
     nsExec::ExecToLog '"$INSTDIR\xntsrv-unregister.exe"'
     Pop $0
@@ -92,8 +92,7 @@ Section "XNTSrv"
   WriteRegDWORD HKLM "${UNINSTKEY}" "NoModify" 1
   WriteRegDWORD HKLM "${UNINSTKEY}" "NoRepair" 1
 
-  ; The stock server needs TCP on for its own window manager; see the README.
-  CreateShortCut "$SMPROGRAMS\XNTSrv.lnk" "$INSTDIR\xntsrvw.exe" "--listen=hyperv,tcp" "$INSTDIR\xntsrv-server.exe" 0
+  CreateShortCut "$SMPROGRAMS\XNTSrv.lnk" "$INSTDIR\xntsrvw.exe" "" "$INSTDIR\xntsrv-server.exe" 0
 SectionEnd
 
 Section "Uninstall"
@@ -107,7 +106,7 @@ Section "Uninstall"
     Abort
   ${EndIf}
 
-  ; Removes the service and machine-wide registration; user settings are kept.
+  ; Removes the services, firewall rule and registration; user settings are kept.
   nsExec::ExecToLog '"$INSTDIR\xntsrv-unregister.exe"'
   Pop $0
 

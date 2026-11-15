@@ -23,8 +23,29 @@
 
 namespace xnt {
 
-const wchar_t kServiceName[] = L"XNTSrv";
-const wchar_t kPipeName[] = L"\\\\.\\pipe\\XNTSrv";
+/* One program, xntsrv-service.exe, runs as several Windows services, one per
+ * way of reaching the X server.  Each is started with its mode as argument. */
+struct ServiceInfo {
+    const wchar_t *name;        /* service name, as used by sc.exe */
+    const wchar_t *mode;        /* argument passed to xntsrv-service.exe */
+    const wchar_t *displayName; /* shown in services.msc */
+    const wchar_t *description;
+};
+const ServiceInfo kServices[] = {
+    { L"XNTSrvWSL", L"wsl", L"XNTSrv WSL",
+      L"Carries connections from WSL to the XNTSrv X server over the Hyper-V socket. "
+      L"Stop it to cut WSL off from the X server." },
+};
+/* Services earlier versions installed; removed on register and unregister. */
+const wchar_t *const kRetiredServices[] = { L"XNTSrv" };
+
+/* Inbound-block rule for the server: it must only be reached over loopback. */
+const wchar_t kFirewallRule[] = L"XNTSrv server (block inbound)";
+
+/* Port the Linux bridge connects to; kHvSocketKey below is this port's ID. */
+const unsigned kVsockPort = 106000;
+/* The X server's TCP port is this plus the display number. */
+const unsigned kXBasePort = 6000;
 
 /* Machine-wide registry entries, all under HKEY_LOCAL_MACHINE. */
 const wchar_t kInstallKey[] = L"SOFTWARE\\XNTSrv";
@@ -105,8 +126,7 @@ inline std::wstring ProgramDir()
 }
 
 /* Ask the Host Compute Service for the running WSL utility VM.  Windows only
- * answers this for administrators, so normal programs go through the XNTSrv
- * service instead (AskServiceForVmId).  Returns a braced GUID, or an empty
+ * answers this for administrators and services.  Returns a braced GUID, or an empty
  * string with the reason in *detail. */
 inline std::wstring FindWslVmId(std::wstring *detail)
 {
@@ -166,36 +186,6 @@ inline std::wstring FindWslVmId(std::wstring *detail)
     }
     FreeLibrary(dll);
     return id;
-}
-
-/* Ask the XNTSrv service which VM is the running WSL VM.  Returns a braced
- * GUID, or an empty string with the reason in *detail. */
-inline std::wstring AskServiceForVmId(std::wstring *detail)
-{
-    /* SECURITY_IDENTIFICATION stops whoever owns the pipe from acting as us. */
-    HANDLE pipe = CreateFileW(kPipeName, GENERIC_READ, 0, NULL, OPEN_EXISTING,
-                              SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, NULL);
-    if (pipe == INVALID_HANDLE_VALUE) {
-        DWORD err = GetLastError();
-        *detail = err == ERROR_FILE_NOT_FOUND
-                      ? L"the XNTSrv service is not running (install it with xntsrv-register)"
-                      : L"cannot reach the XNTSrv service (error " + std::to_wstring(err) + L")";
-        return L"";
-    }
-
-    char buf[64];
-    DWORD total = 0, n = 0;
-    while (total < sizeof buf && ReadFile(pipe, buf + total, sizeof buf - total, &n, NULL) && n > 0)
-        total += n;
-    CloseHandle(pipe);
-
-    std::wstring reply;
-    for (DWORD i = 0; i < total && buf[i] != '\n' && buf[i] != '\r'; i++)
-        reply.push_back((wchar_t)(unsigned char)buf[i]);
-    if (IsGuid(reply))
-        return reply;
-    *detail = L"no WSL VM is running";
-    return L"";
 }
 
 } /* namespace xnt */

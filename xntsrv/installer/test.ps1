@@ -14,7 +14,7 @@ function Check([string] $what, [bool] $ok) {
 function Run([string] $exe, [string[]] $arguments) {
     (Start-Process -FilePath $exe -ArgumentList $arguments -Wait -PassThru).ExitCode
 }
-function ServiceState { (Get-Service XNTSrv -ErrorAction SilentlyContinue).Status }
+function ServiceState { (Get-Service XNTSrvWSL -ErrorAction SilentlyContinue).Status }
 
 foreach ($pass in 'install', 'install over existing') {
     Check "$pass exits 0" ((Run $Setup @('/S')) -eq 0)
@@ -28,10 +28,11 @@ foreach ($pass in 'install', 'install over existing') {
         (Test-Path "$dir\xlaunch.exe") -or (Test-Path "$dir\`$PLUGINSDIR")))
     Check 'Start menu shortcut' (Test-Path $shortcut)
     Check 'listed in Apps' ((Get-ItemProperty $uninstKey -ErrorAction SilentlyContinue).DisplayName -eq 'XNTSrv')
+    Check 'firewall rule present' ($null -ne (Get-NetFirewallRule -DisplayName 'XNTSrv server (block inbound)' -ErrorAction SilentlyContinue))
     Check 'install location registered' ((Get-ItemProperty 'HKLM:\SOFTWARE\XNTSrv').InstallDir -eq $dir)
 }
 
-$line = & "$dir\xntsrv.exe" --dry-run --vmid=any --no-auth
+$line = & "$dir\xntsrv.exe" --dry-run --no-auth
 Check "launcher finds its server: $line" ($line -like "`"$dir\xntsrv-server.exe`" :0 *")
 
 # _?= makes the uninstaller run in place and wait, so its own file stays behind.
@@ -40,6 +41,7 @@ Check 'service removed' ($null -eq (ServiceState))
 Check 'program files removed' (-not (Test-Path "$dir\xntsrv-server.exe"))
 Check 'shortcut removed' (-not (Test-Path $shortcut))
 Check 'Apps entry removed' (-not (Test-Path $uninstKey))
+Check 'firewall rule removed' ($null -eq (Get-NetFirewallRule -DisplayName 'XNTSrv server (block inbound)' -ErrorAction SilentlyContinue))
 Check 'registration removed' (-not (Test-Path 'HKLM:\SOFTWARE\XNTSrv'))
 
 if ($script:failures -gt 0) { throw "$($script:failures) installer check(s) failed" }

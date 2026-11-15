@@ -15,7 +15,6 @@
 #include <string>
 #include <vector>
 
-#define DEFAULT_VSOCK_PORT 106000u
 #define COOKIE_LEN 16
 
 using std::wstring;
@@ -26,9 +25,6 @@ static const wchar_t kHelp[] =
     L"\n"
     L"  -d, --display=N         display number (default 0)\n"
     L"  -m, --mode=MODE         multiwindow (default) | desktop | fullscreen\n"
-    L"  -l, --listen=LIST       comma-separated: hyperv (default), tcp, none\n"
-    L"      --vmid=ID           auto (default: the running WSL VM) | any | {GUID}\n"
-    L"      --vsock-port=PORT   Hyper-V socket port (default 106000)\n"
     L"      --no-auth           disable X authentication (server's -ac)\n"
     L"      --no-clipboard      disable clipboard sharing\n"
     L"      --no-gl             disable native OpenGL\n"
@@ -36,20 +32,18 @@ static const wchar_t kHelp[] =
     L"      --dpi=N             override DPI\n"
     L"      --server=PATH       server binary (default: xntsrv-server.exe beside xntsrv.exe)\n"
     L"  -n, --dry-run           print the server command line and exit\n"
-    L"  -v, --verbose           explain what the launcher is doing\n"
     L"  -w, --wait              wait for the server and return its exit code\n"
     L"  -h, --help              show this help\n"
     L"  -V, --version           show the version\n"
     L"\n"
-    L"Anything after -- is passed to the server unchanged.\n";
+    L"Anything after -- is passed to the server unchanged.\n"
+    L"\n"
+    L"The server listens on this computer only (TCP on 127.0.0.1). Connections from\n"
+    L"WSL and other virtual machines are carried to it by the XNTSrv services.\n";
 
 struct Options {
     unsigned display = 0;
     wstring mode = L"multiwindow";
-    bool listenHyperv = true;
-    bool listenTcp = false;
-    wstring vmid = L"auto";
-    unsigned vsockPort = DEFAULT_VSOCK_PORT;
     bool auth = true;
     bool clipboard = true;
     bool gl = true;
@@ -58,7 +52,6 @@ struct Options {
     wstring server;
     bool dryRun = false;
     bool wait = false;
-    bool verbose = false;
     std::vector<wstring> extra;
 };
 
@@ -170,43 +163,13 @@ struct OptSpec {
 };
 
 static const OptSpec kSpecs[] = {
-    { L'd', L"display", true },    { L'm', L"mode", true },        { L'l', L"listen", true },
-    { 0, L"vmid", true },          { 0, L"vsock-port", true },     { 0, L"no-auth", false },
+    { L'd', L"display", true },    { L'm', L"mode", true },        { 0, L"no-auth", false },
     { 0, L"no-clipboard", false }, { 0, L"no-gl", false },         { 0, L"no-tray", false },
     { 0, L"dpi", true },           { 0, L"server", true },         { L'n', L"dry-run", false },
     { L'w', L"wait", false },      { L'h', L"help", false },       { L'V', L"version", false },
-    { L'v', L"verbose", false },
 };
 
 enum ParseResult { PARSE_OK, PARSE_EXIT_OK, PARSE_ERROR };
-
-static bool ParseListen(const wstring &list, Options *o)
-{
-    bool hyperv = false, tcp = false, none = false, any = false;
-    size_t start = 0;
-
-    while (start <= list.size()) {
-        size_t comma = list.find(L',', start);
-        wstring item = list.substr(start, comma == wstring::npos ? wstring::npos : comma - start);
-        if (item == L"hyperv")
-            hyperv = true;
-        else if (item == L"tcp")
-            tcp = true;
-        else if (item == L"none")
-            none = true;
-        else
-            return false;
-        any = true;
-        if (comma == wstring::npos)
-            break;
-        start = comma + 1;
-    }
-    if (!any || (none && (hyperv || tcp)))
-        return false;
-    o->listenHyperv = hyperv;
-    o->listenTcp = tcp;
-    return true;
-}
 
 static ParseResult Apply(const OptSpec &spec, const wstring &value, Options *o)
 {
@@ -219,16 +182,6 @@ static ParseResult Apply(const OptSpec &spec, const wstring &value, Options *o)
         if (value != L"multiwindow" && value != L"desktop" && value != L"fullscreen")
             goto bad;
         o->mode = value;
-    } else if (name == L"listen") {
-        if (!ParseListen(value, o))
-            goto bad;
-    } else if (name == L"vmid") {
-        if (value != L"auto" && value != L"any" && !xnt::IsGuid(value))
-            goto bad;
-        o->vmid = value;
-    } else if (name == L"vsock-port") {
-        if (!ParseUnsigned(value, 0x7fffffff, &o->vsockPort) || o->vsockPort == 0)
-            goto bad;
     } else if (name == L"dpi") {
         if (!ParseUnsigned(value, 9999, &o->dpi) || o->dpi == 0)
             goto bad;
@@ -248,8 +201,6 @@ static ParseResult Apply(const OptSpec &spec, const wstring &value, Options *o)
         o->dryRun = true;
     } else if (name == L"wait") {
         o->wait = true;
-    } else if (name == L"verbose") {
-        o->verbose = true;
     } else if (name == L"help") {
         Out(kHelp);
         return PARSE_EXIT_OK;
@@ -410,7 +361,7 @@ static bool EnsureAuthFile(const wstring &path, unsigned display)
 
 /* ---- main -------------------------------------------------------------- */
 
-static std::vector<wstring> BuildServerArgs(const Options &o, const wstring &vmid, const wstring &authFile)
+static std::vector<wstring> BuildServerArgs(const Options &o, const wstring &authFile)
 {
     std::vector<wstring> a;
 
@@ -420,18 +371,12 @@ static std::vector<wstring> BuildServerArgs(const Options &o, const wstring &vmi
     else if (o.mode == L"fullscreen")
         a.push_back(L"-fullscreen");
 
-    a.push_back(o.listenHyperv ? L"-listen" : L"-nolisten");
-    a.push_back(L"hyperv");
-    a.push_back(o.listenTcp ? L"-listen" : L"-nolisten");
+    /* TCP is how the server's own window manager and clipboard reach it, and
+     * how the XNTSrv services hand it connections; nothing else is opened. */
+    a.push_back(L"-listen");
     a.push_back(L"tcp");
-    if (o.listenHyperv) {
-        if (!vmid.empty()) {
-            a.push_back(L"-vmid");
-            a.push_back(vmid);
-        }
-        a.push_back(L"-vsockport");
-        a.push_back(std::to_wstring(o.vsockPort));
-    }
+    a.push_back(L"-nolisten");
+    a.push_back(L"hyperv");
 
     if (o.auth) {
         a.push_back(L"-auth");
@@ -465,26 +410,6 @@ static int Run(int argc, wchar_t **argv)
         break;
     }
 
-    /* Resolve which VM may connect.  Only administrators may look the WSL VM
-     * up directly, so ask the XNTSrv service first. */
-    wstring vmid;
-    if (o.listenHyperv && o.vmid != L"any") {
-        if (o.vmid == L"auto") {
-            wstring detail;
-            vmid = xnt::AskServiceForVmId(&detail);
-            if (vmid.empty() && xnt::IsElevated())
-                vmid = xnt::FindWslVmId(&detail);
-            if (vmid.empty()) {
-                Err(L"cannot identify the WSL VM: " + detail);
-                return 1;
-            }
-            if (o.verbose)
-                Err(L"WSL VM is " + vmid);
-        } else {
-            vmid = o.vmid;
-        }
-    }
-
     wstring authFile;
     if (o.auth) {
         authFile = AuthFilePath();
@@ -500,7 +425,7 @@ static int Run(int argc, wchar_t **argv)
 
     wstring server = ResolveServer(o);
     wstring cmdline = Quote(server);
-    for (const wstring &arg : BuildServerArgs(o, vmid, authFile))
+    for (const wstring &arg : BuildServerArgs(o, authFile))
         cmdline += L" " + Quote(arg);
 
     if (o.dryRun) {

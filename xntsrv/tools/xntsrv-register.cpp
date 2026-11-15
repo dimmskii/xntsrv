@@ -3,8 +3,9 @@
  *
  * Run from an administrator prompt in the folder that holds the XNTSrv
  * programs.  It records the install location, registers the Hyper-V socket
- * service ID and the App Paths entry, and installs and starts the XNTSrv
- * service.  Running it again repairs an existing setup.  xntsrv-reset undoes it.
+ * service ID and the App Paths entry, blocks inbound network connections to
+ * the server, and installs and starts the XNTSrv services.  Running it again
+ * repairs an existing setup.  xntsrv-unregister undoes it.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -15,6 +16,8 @@ using std::wstring;
 static void Out(const wstring &text) { xnt::ConsoleWrite(STD_OUTPUT_HANDLE, text + L"\n"); }
 static void Err(const wstring &text) { xnt::ConsoleWrite(STD_ERROR_HANDLE, L"xntsrv-register: " + text + L"\n"); }
 
+#include "teardown.h"
+
 static const wchar_t kHelp[] =
     L"Usage: xntsrv-register [OPTION]\n"
     L"Set XNTSrv up for all users of this computer.  Needs an administrator prompt.\n"
@@ -23,7 +26,7 @@ static const wchar_t kHelp[] =
     L"  -V, --version   show the version\n"
     L"\n"
     L"Registers the folder this program is in, so run it from the installed location.\n"
-    L"Use xntsrv-reset to undo.\n";
+    L"Use xntsrv-unregister to undo.\n";
 
 static bool SetString(const wchar_t *key, const wchar_t *name, const wstring &value)
 {
@@ -40,50 +43,52 @@ static bool SetString(const wchar_t *key, const wchar_t *name, const wstring &va
     return rc == ERROR_SUCCESS;
 }
 
-static bool InstallService(const wstring &binary)
+static bool InstallService(SC_HANDLE scm, const xnt::ServiceInfo &info, const wstring &binary)
 {
-    wstring command = L"\"" + binary + L"\"";
-    SC_HANDLE scm = OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT | SC_MANAGER_CREATE_SERVICE);
-    if (!scm) {
-        Err(L"cannot open the service manager (error " + std::to_wstring(GetLastError()) + L")");
-        return false;
-    }
-
+    wstring command = L"\"" + binary + L"\" " + info.mode;
     const DWORD access = SERVICE_CHANGE_CONFIG | SERVICE_START | SERVICE_QUERY_STATUS;
-    SC_HANDLE svc = CreateServiceW(scm, xnt::kServiceName, L"XNTSrv Service", access,
+    SC_HANDLE svc = CreateServiceW(scm, info.name, info.displayName, access,
                                    SERVICE_WIN32_OWN_PROCESS, SERVICE_AUTO_START, SERVICE_ERROR_NORMAL,
                                    command.c_str(), NULL, NULL, NULL, NULL, NULL);
     bool ok = svc != NULL;
     if (!svc && GetLastError() == ERROR_SERVICE_EXISTS) {
-        /* Already installed: point it at this copy. */
-        svc = OpenServiceW(scm, xnt::kServiceName, access);
-        ok = svc && ChangeServiceConfigW(svc, SERVICE_WIN32_OWN_PROCESS, SERVICE_AUTO_START,
+        /* Already installed: point it at this copy.  Its start type is left
+         * alone, so a service the administrator disabled stays disabled. */
+        svc = OpenServiceW(scm, info.name, access);
+        ok = svc && ChangeServiceConfigW(svc, SERVICE_WIN32_OWN_PROCESS, SERVICE_NO_CHANGE,
                                          SERVICE_ERROR_NORMAL, command.c_str(), NULL, NULL, NULL, NULL,
-                                         NULL, L"XNTSrv Service");
+                                         NULL, info.displayName);
     }
     if (!ok) {
-        Err(L"cannot install the service (error " + std::to_wstring(GetLastError()) + L")");
+        Err(wstring(L"cannot install the ") + info.displayName + L" service (error " +
+            std::to_wstring(GetLastError()) + L")");
     } else {
-        wchar_t text[] = L"Tells the XNTSrv X server which virtual machine is the WSL VM.";
-        SERVICE_DESCRIPTIONW description = { text };
+        wstring text = info.description;
+        SERVICE_DESCRIPTIONW description = { &text[0] };
         ChangeServiceConfig2W(svc, SERVICE_CONFIG_DESCRIPTION, &description);
 
         SERVICE_STATUS status = {};
-        if (!StartServiceW(svc, 0, NULL) && GetLastError() != ERROR_SERVICE_ALREADY_RUNNING) {
-            Err(L"the service is installed but did not start (error " + std::to_wstring(GetLastError()) + L")");
-            ok = false;
-        } else {
+        if (StartServiceW(svc, 0, NULL) || GetLastError() == ERROR_SERVICE_ALREADY_RUNNING) {
             for (int i = 0; i < 100 && QueryServiceStatus(svc, &status) && status.dwCurrentState != SERVICE_RUNNING; i++)
                 Sleep(100);
             if (status.dwCurrentState != SERVICE_RUNNING) {
-                Err(L"the service is installed but is not running");
+                Err(wstring(L"the ") + info.displayName + L" service is installed but is not running");
                 ok = false;
             }
+        } else if (GetLastError() == ERROR_SERVICE_DISABLED) {
+            Out(wstring(L"Service ") + info.displayName + L":    installed, left disabled");
+            CloseServiceHandle(svc);
+            return true;
+        } else {
+            Err(wstring(L"the ") + info.displayName + L" service is installed but did not start (error " +
+                std::to_wstring(GetLastError()) + L")");
+            ok = false;
         }
     }
     if (svc)
         CloseServiceHandle(svc);
-    CloseServiceHandle(scm);
+    if (ok)
+        Out(wstring(L"Service ") + info.displayName + L":    installed and running");
     return ok;
 }
 
@@ -133,10 +138,25 @@ int wmain(int argc, wchar_t **argv)
     else
         ok = false;
 
-    if (InstallService(service))
-        Out(L"Service:               installed and running");
-    else
+    HRESULT hr = SetFirewallRule(dir + L"\\xntsrv-server.exe");
+    if (SUCCEEDED(hr)) {
+        Out(L"Firewall:              inbound connections to the server blocked");
+    } else {
+        Err(L"cannot add the firewall rule (" + xnt::Hex((DWORD)hr) + L")");
         ok = false;
+    }
+
+    SC_HANDLE scm = OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT | SC_MANAGER_CREATE_SERVICE);
+    if (!scm) {
+        Err(L"cannot open the service manager (error " + std::to_wstring(GetLastError()) + L")");
+        ok = false;
+    } else {
+        for (const wchar_t *retired : xnt::kRetiredServices)
+            RemoveService(scm, retired, NULL);
+        for (const xnt::ServiceInfo &info : xnt::kServices)
+            ok = InstallService(scm, info, service) && ok;
+        CloseServiceHandle(scm);
+    }
 
     if (ok)
         Out(L"Done. Restart WSL (wsl --shutdown) once so it picks up the socket registration.");

@@ -19,43 +19,28 @@ endfunction()
 
 set(BASE --dry-run --no-auth --server=${S})
 
-# Defaults (with the VM pinned so the output does not depend on the machine).
-expect(0 "^C:\\\\x\\\\srv.exe :0 -multiwindow -listen hyperv -nolisten tcp -vsockport 106000 -ac -clipboard -wgl\n$"
-  ${BASE} --vmid=any)
+# Defaults: TCP for the server's own use, nothing else.
+expect(0 "^C:\\\\x\\\\srv.exe :0 -multiwindow -listen tcp -nolisten hyperv -ac -clipboard -wgl\n$" ${BASE})
 
-# --listen / -l in every spelling.
-expect(0 " -listen hyperv -nolisten tcp -vmid ${G} -vsockport 106000 " ${BASE} --vmid=${G} --listen=hyperv)
-expect(0 " -nolisten hyperv -listen tcp -ac "       ${BASE} --listen=tcp)
-expect(0 " -nolisten hyperv -listen tcp -ac "       ${BASE} --listen tcp)
-expect(0 " -nolisten hyperv -listen tcp -ac "       ${BASE} -l tcp)
-expect(0 " -nolisten hyperv -listen tcp -ac "       ${BASE} -ltcp)
-expect(0 " -listen hyperv -listen tcp -vsockport "  ${BASE} --vmid=any -l hyperv,tcp)
-expect(0 " -listen hyperv -listen tcp -vsockport "  ${BASE} --vmid=any -l tcp,hyperv)
-expect(0 " -nolisten hyperv -nolisten tcp -ac "     ${BASE} -l none)
-expect(2 "invalid value for --listen: 'none,tcp'"   ${BASE} -l none,tcp)
-expect(2 "invalid value for --listen: 'udp'"        ${BASE} -l udp)
-expect(2 "invalid value for --listen: ''"           ${BASE} --listen=)
-expect(2 "requires an argument"                     ${BASE} --listen)
-
-# Other options.
-expect(0 "srv.exe :7 -fullscreen "                  ${BASE} --vmid=any -d 7 -m fullscreen)
-expect(0 "srv.exe :2 -listen hyperv "               ${BASE} --vmid=any --display=2 --mode=desktop)
-expect(0 " -vsockport 6000 -ac -noclipboard -nowgl -notrayicon -dpi 144\n$"
-  ${BASE} --vmid=any --vsock-port=6000 --no-clipboard --no-gl --no-tray --dpi=144)
-expect(0 " -wgl -logverbose 3 \"a b\"\n$"           ${BASE} --vmid=any -- -logverbose 3 "a b")
-expect(0 "^\"C:\\\\Program Files\\\\X\\\\s.exe\" :0 " --dry-run --no-auth --vmid=any "--server=C:\\Program Files\\X\\s.exe")
-expect(0 " -auth [^\n]*XNTSrv\\\\Xauthority -clipboard" --dry-run --vmid=any --server=${S})
-expect(0 "srv.exe :0 "                              -n --no-auth --vmid any --server ${S})
+# Options in every spelling.
+expect(0 "srv.exe :7 -fullscreen -listen tcp "      ${BASE} -d 7 -m fullscreen)
+expect(0 "srv.exe :7 -fullscreen -listen tcp "      ${BASE} -d7 -mfullscreen)
+expect(0 "srv.exe :2 -listen tcp "                  ${BASE} --display=2 --mode=desktop)
+expect(0 "srv.exe :2 -listen tcp "                  ${BASE} --display 2 --mode desktop)
+expect(0 " -ac -noclipboard -nowgl -notrayicon -dpi 144\n$" ${BASE} --no-clipboard --no-gl --no-tray --dpi=144)
+expect(0 " -wgl -logverbose 3 \"a b\"\n$"           ${BASE} -- -logverbose 3 "a b")
+expect(0 "^\"C:\\\\Program Files\\\\X\\\\s.exe\" :0 " --dry-run --no-auth "--server=C:\\Program Files\\X\\s.exe")
+expect(0 " -auth [^\n]*XNTSrv\\\\Xauthority -clipboard" --dry-run --server=${S})
+expect(0 "srv.exe :0 "                              -n --no-auth --server ${S})
 
 # Errors and informational options.
 expect(2 "unrecognized option '--bogus'"            ${BASE} --bogus)
+expect(2 "unrecognized option '--listen'"           ${BASE} --listen=tcp)
+expect(2 "requires an argument"                     ${BASE} --display)
 expect(2 "invalid option -- 'x'"                    ${BASE} -x)
 expect(2 "unexpected argument 'stray'"              ${BASE} stray)
-expect(2 "invalid value for --vmid"                 ${BASE} --vmid=1234)
 expect(2 "invalid value for --mode"                 ${BASE} --mode=rootless)
 expect(2 "doesn't allow an argument"                ${BASE} --no-gl=1)
-expect(0 "srv.exe :0 "                              ${BASE} --vmid=any -v)
-expect(0 "srv.exe :0 "                              ${BASE} --vmid=any -nv)
 expect(0 "^Usage: xntsrv "                          --help)
 expect(0 "^xntsrv [0-9]+\\.[0-9]+\\.[0-9]+\n$"      -V)
 

@@ -34,57 +34,63 @@ function(expect_input line code pattern)
   endif()
 endfunction()
 
-set(DRY ${BIN}/xntsrv.exe --dry-run --no-auth --server=C:\\x\\srv.exe)
-set(PIPE powershell -NoProfile -ExecutionPolicy Bypass -File ${CMAKE_CURRENT_LIST_DIR}/pipe-test.ps1)
+set(FW netsh advfirewall firewall show rule "name=XNTSrv server (block inbound)")
 
 # Start from a clean machine.
 execute_process(COMMAND ${BIN}/xntsrv-reset.exe --yes OUTPUT_QUIET ERROR_QUIET)
+expect(1 "cannot be started directly" ${BIN}/xntsrv-service.exe)
+expect(1 "cannot be started directly" ${BIN}/xntsrv-service.exe bogus)
+expect(1 "" ${FW})
 
-# Nothing installed: the launcher refuses to start a server no client can reach.
-expect(1 "cannot identify the WSL VM: " ${DRY})
-expect(1 "cannot be run directly" ${BIN}/xntsrv-service.exe)
-expect(1 "" ${PIPE})
+# A service left by an earlier version is cleaned up by register.
+execute_process(COMMAND sc create XNTSrv binPath= "${BIN}/xntsrv-service.exe" OUTPUT_QUIET ERROR_QUIET)
 
 # Register.
-expect(0 "Service: +installed and running" ${BIN}/xntsrv-register.exe)
-expect(0 "RUNNING" sc query XNTSrv)
+expect(0 "Service XNTSrv WSL: +installed and running" ${BIN}/xntsrv-register.exe)
+expect(0 "RUNNING" sc query XNTSrvWSL)
+expect(0 "xntsrv-service.exe\" wsl" sc qc XNTSrvWSL)
+expect(1060 "" sc query XNTSrv)
 expect(0 "ElementName +REG_SZ +XNTSrv" reg query "${HV}")
 expect(0 "xntsrv\\.exe" reg query "${APP}" /ve)
 expect(0 "InstallDir" reg query "HKLM\\SOFTWARE\\XNTSrv")
-expect(0 "Service: +installed and running" ${BIN}/xntsrv-register.exe)   # repeatable
+expect(0 "Block.*xntsrv-server.exe|xntsrv-server.exe.*Block" ${FW} verbose)
+expect(0 "Service XNTSrv WSL: +installed and running" ${BIN}/xntsrv-register.exe)   # repeatable
 
-# The service answers on its pipe, repeatedly.  CI has no WSL VM, so the answer
-# is an empty line and the launcher still refuses to start.
-expect(0 "reply=\\[\\]" ${PIPE})
-expect(0 "reply=\\[\\]" ${PIPE})
-expect(1 "cannot identify the WSL VM: " ${DRY})
+# A service the administrator disabled stays disabled across a re-register.
+execute_process(COMMAND sc stop XNTSrvWSL OUTPUT_QUIET ERROR_QUIET)
+execute_process(COMMAND ${CMAKE_COMMAND} -E sleep 3)
+execute_process(COMMAND sc config XNTSrvWSL start= disabled OUTPUT_QUIET ERROR_QUIET)
+expect(0 "Service XNTSrv WSL: +installed, left disabled" ${BIN}/xntsrv-register.exe)
+execute_process(COMMAND sc config XNTSrvWSL start= auto OUTPUT_QUIET ERROR_QUIET)
 
 # Unregister keeps user settings.
 file(MAKE_DIRECTORY "$ENV{LOCALAPPDATA}/XNTSrv/sub")
 file(WRITE "$ENV{LOCALAPPDATA}/XNTSrv/sub/keep.txt" "x")
-expect(0 "Service: +removed" ${BIN}/xntsrv-unregister.exe)
+expect(0 "Service XNTSrv WSL: +removed.*Firewall: +rule removed" ${BIN}/xntsrv-unregister.exe)
+expect(1060 "" sc query XNTSrvWSL)
+expect(1 "" ${FW})
 expect(1 "" reg query "${HV}")
 expect(1 "" reg query "HKLM\\SOFTWARE\\XNTSrv")
-expect(1 "" ${PIPE})
 if(NOT EXISTS "$ENV{LOCALAPPDATA}/XNTSrv/sub/keep.txt")
   message("FAIL: xntsrv-unregister deleted user settings")
   math(EXPR failures "${failures}+1")
 endif()
-expect(0 "Service: +not installed" ${BIN}/xntsrv-unregister.exe)
+expect(0 "Service XNTSrv WSL: +not installed" ${BIN}/xntsrv-unregister.exe)
 
 # Reset asks first, and removes everything when told yes.
 expect(0 "installed and running" ${BIN}/xntsrv-register.exe)
 expect_input("n" 1 "Continue\\? \\[y/N\\] Aborted" ${BIN}/xntsrv-reset.exe)
 expect_input("" 1 "Aborted" ${BIN}/xntsrv-reset.exe)
-expect(0 "RUNNING" sc query XNTSrv)
-expect_input("y" 0 "Service: +removed.*User settings: +1 folder" ${BIN}/xntsrv-reset.exe)
+expect(0 "RUNNING" sc query XNTSrvWSL)
+expect_input("y" 0 "Service XNTSrv WSL: +removed.*User settings: +1 folder" ${BIN}/xntsrv-reset.exe)
 expect(1 "" reg query "${HV}")
 expect(1 "" reg query "${APP}")
+expect(1 "" ${FW})
 if(EXISTS "$ENV{LOCALAPPDATA}/XNTSrv")
   message("FAIL: xntsrv-reset left user settings behind")
   math(EXPR failures "${failures}+1")
 endif()
-expect(0 "Service: +not installed.*0 folder" ${BIN}/xntsrv-reset.exe -y)
+expect(0 "Service XNTSrv WSL: +not installed.*0 folder" ${BIN}/xntsrv-reset.exe -y)
 
 # Argument handling.
 foreach(tool register unregister reset)
