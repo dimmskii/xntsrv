@@ -6,6 +6,9 @@
 # came from.  Connecting to this computer's network address then answers
 # "from=127.0.0.1" when the service took the connection and relayed it, and
 # "from=<network address>" when it went straight to the stand-in.
+#
+# Everything runs on one thread: a TCP connection completes before the
+# listener accepts it, so the script can connect first and accept afterwards.
 param([Parameter(Mandatory)] [ValidateSet('relayed', 'direct')] [string] $Expect)
 
 $ip = (Get-NetIPAddress -AddressFamily IPv4 |
@@ -13,38 +16,41 @@ $ip = (Get-NetIPAddress -AddressFamily IPv4 |
     Select-Object -First 1).IPAddress
 if (-not $ip) { Write-Output 'no network address on this machine'; exit 1 }
 
-$job = Start-Job {
-    $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Any, 6000)
-    $listener.Server.SetSocketOption([Net.Sockets.SocketOptionLevel]::Socket,
-        [Net.Sockets.SocketOptionName]::ReuseAddress, $true)
-    $listener.Start()
-    while ($true) {
-        $client = $listener.AcceptTcpClient()
-        $writer = New-Object IO.StreamWriter($client.GetStream())
-        $writer.WriteLine('from=' + $client.Client.RemoteEndPoint.Address)
-        $writer.Flush()
-        $client.Close()
-    }
-}
+$listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Any, 6000)
+$listener.Server.SetSocketOption([Net.Sockets.SocketOptionLevel]::Socket,
+    [Net.Sockets.SocketOptionName]::ReuseAddress, $true)
+$listener.Start()
 
 $want = if ($Expect -eq 'relayed') { 'from=127.0.0.1' } else { "from=$ip" }
 $reply = ''
 # The service looks at addresses and settings every few seconds, so allow for that.
-foreach ($attempt in 1..20) {
+foreach ($attempt in 1..15) {
+    $client = $null
     try {
         $client = [Net.Sockets.TcpClient]::new($ip, 6000)
         $client.ReceiveTimeout = 3000
+
+        # Wait for the connection (ours, or the service's on our behalf) to arrive.
+        $deadline = (Get-Date).AddSeconds(3)
+        while (-not $listener.Pending() -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 50 }
+        if ($listener.Pending()) {
+            $accepted = $listener.AcceptTcpClient()
+            $writer = New-Object IO.StreamWriter($accepted.GetStream())
+            $writer.WriteLine('from=' + $accepted.Client.RemoteEndPoint.Address)
+            $writer.Flush()
+            $accepted.Close()
+        }
         $reply = (New-Object IO.StreamReader($client.GetStream())).ReadLine()
-        $client.Close()
     } catch {
         $reply = "error: $($_.Exception.Message)"
+    } finally {
+        if ($client) { $client.Close() }
     }
     if ($reply -eq $want) { break }
     Start-Sleep -Seconds 1
 }
 
-Stop-Job $job
-Remove-Job $job -Force
+$listener.Stop()
 if ($reply -eq $want) {
     Write-Output "$Expect ($reply via $ip)"
     exit 0
