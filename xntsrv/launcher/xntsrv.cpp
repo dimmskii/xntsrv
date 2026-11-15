@@ -43,6 +43,7 @@ static const wchar_t kHelp[] =
     L"      --dpi=N             override DPI\n"
     L"      --server=PATH       server binary (default: xntsrv-server.exe beside xntsrv.exe)\n"
     L"  -n, --dry-run           print the server command line and exit\n"
+    L"  -v, --verbose           explain what the launcher is doing\n"
     L"  -w, --wait              wait for the server and return its exit code\n"
     L"  -h, --help              show this help\n"
     L"  -V, --version           show the version\n"
@@ -64,6 +65,7 @@ struct Options {
     wstring server;
     bool dryRun = false;
     bool wait = false;
+    bool verbose = false;
     std::vector<wstring> extra;
 };
 
@@ -196,6 +198,7 @@ static const OptSpec kSpecs[] = {
     { 0, L"no-clipboard", false }, { 0, L"no-gl", false },         { 0, L"no-tray", false },
     { 0, L"dpi", true },           { 0, L"server", true },         { L'n', L"dry-run", false },
     { L'w', L"wait", false },      { L'h', L"help", false },       { L'V', L"version", false },
+    { L'v', L"verbose", false },
 };
 
 enum ParseResult { PARSE_OK, PARSE_EXIT_OK, PARSE_ERROR };
@@ -268,6 +271,8 @@ static ParseResult Apply(const OptSpec &spec, const wstring &value, Options *o)
         o->dryRun = true;
     } else if (name == L"wait") {
         o->wait = true;
+    } else if (name == L"verbose") {
+        o->verbose = true;
     } else if (name == L"help") {
         Out(kHelp);
         return PARSE_EXIT_OK;
@@ -389,9 +394,17 @@ static wstring ResolveServer(const Options &o)
 
 /* ---- WSL virtual machine lookup ---------------------------------------- */
 
+static wstring Hex(HRESULT hr)
+{
+    wchar_t buf[16];
+    wsprintfW(buf, L"0x%08X", (unsigned)hr);
+    return buf;
+}
+
 /* Ask the Host Compute Service for the running WSL utility VM.  Returns a
- * braced GUID, or an empty string when there is none or the query is refused. */
-static wstring FindWslVmId()
+ * braced GUID, or an empty string when there is none or the query is refused;
+ * *detail then says which, for --verbose and the warning. */
+static wstring FindWslVmId(wstring *detail)
 {
     typedef void *HCS_OPERATION;
     typedef HCS_OPERATION(WINAPI *CreateOperationFn)(const void *, void *);
@@ -401,8 +414,10 @@ static wstring FindWslVmId()
 
     wstring id;
     HMODULE dll = LoadLibraryExW(L"computecore.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
-    if (!dll)
+    if (!dll) {
+        *detail = L"computecore.dll is not available (Hyper-V platform not installed?)";
         return id;
+    }
 
     CreateOperationFn create = (CreateOperationFn)(void *)GetProcAddress(dll, "HcsCreateOperation");
     EnumerateFn enumerate = (EnumerateFn)(void *)GetProcAddress(dll, "HcsEnumerateComputeSystems");
@@ -413,8 +428,16 @@ static wstring FindWslVmId()
         HCS_OPERATION op = create(NULL, NULL);
         PWSTR doc = NULL;
 
-        if (op && SUCCEEDED(enumerate(L"{\"Owners\":[\"WSL\"]}", op)) &&
-            SUCCEEDED(wait(op, 5000, &doc)) && doc) {
+        HRESULT hr = op ? enumerate(L"{\"Owners\":[\"WSL\"]}", op) : E_OUTOFMEMORY;
+
+        if (SUCCEEDED(hr))
+            hr = wait(op, 5000, &doc);
+        if (FAILED(hr)) {
+            *detail = L"the Host Compute Service refused the query (" + Hex(hr) + L")";
+            if (hr == E_ACCESSDENIED)
+                *detail += L"; listing VMs needs administrator or Hyper-V Administrators rights";
+        } else if (doc) {
+            *detail = wstring(L"Host Compute Service answered: ") + doc;
             /* The result is a JSON array of systems; take the first one's
              * RuntimeId (the VM's Hyper-V socket address), else its Id. */
             wstring json = doc;
@@ -434,6 +457,8 @@ static wstring FindWslVmId()
         if (op)
             close(op);
     }
+    else
+        *detail = L"computecore.dll lacks the expected functions";
     FreeLibrary(dll);
     return id;
 }
@@ -533,14 +558,10 @@ static std::vector<wstring> BuildServerArgs(const Options &o, const wstring &vmi
     return a;
 }
 
-int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
+static int Run(int argc, wchar_t **argv)
 {
-    int argc = 0;
-    wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     Options o;
 
-    if (!argv)
-        return 1;
     switch (ParseArgs(argc, argv, &o)) {
     case PARSE_EXIT_OK:
         return 0;
@@ -555,9 +576,13 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     wstring vmid;
     if (o.listenHyperv && o.vmid != L"any") {
         if (o.vmid == L"auto") {
-            vmid = FindWslVmId();
+            wstring detail;
+            vmid = FindWslVmId(&detail);
+            if (o.verbose)
+                Err(detail);
             if (vmid.empty())
-                Err(L"warning: no running WSL VM found; accepting Hyper-V connections from any VM");
+                Err(L"warning: could not identify the WSL VM; accepting Hyper-V connections from any VM"
+                    L" (use --verbose for the reason)");
         } else {
             vmid = o.vmid;
         }
@@ -587,7 +612,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     }
 
     if (!FileExists(server)) {
-        Err(L"server not found: " + server);
+        Err(L"server not found: " + server +
+            L"\nInstall VcXsrv, or point --server at vcxsrv.exe, until XNTSrv ships its own server.");
         return 1;
     }
 
@@ -610,4 +636,21 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
     return (int)code;
+}
+
+/* The same source builds two programs: xntsrv.exe (console subsystem, for
+ * terminals and scripts, so the shell waits and output appears in order) and
+ * xntsrvw.exe (windows subsystem, for shortcuts and autostart, so no console
+ * window ever flashes).  The linker picks the matching entry point. */
+int wmain(int argc, wchar_t **argv)
+{
+    return Run(argc, argv);
+}
+
+int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
+{
+    int argc = 0;
+    wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+
+    return argv ? Run(argc, argv) : 1;
 }

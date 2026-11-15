@@ -54,6 +54,8 @@ expect(2 "unexpected argument 'stray'"              ${BASE} stray)
 expect(2 "invalid value for --vmid"                 ${BASE} --vmid=1234)
 expect(2 "invalid value for --mode"                 ${BASE} --mode=rootless)
 expect(2 "doesn't allow an argument"                ${BASE} --no-gl=1)
+expect(0 "srv.exe :0 "                              ${BASE} --vmid=any -v)
+expect(0 "srv.exe :0 "                              ${BASE} --vmid=any -nv)
 expect(0 "^Usage: xntsrv "                          --help)
 expect(0 "^xntsrv [0-9]+\\.[0-9]+\\.[0-9]+\n$"      -V)
 
