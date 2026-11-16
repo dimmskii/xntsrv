@@ -19,6 +19,11 @@ on:
 permissions:
   contents: read
 
+# A newer push makes an older build pointless.
+concurrency:
+  group: server
+  cancel-in-progress: true
+
 jobs:
   build:
     # Upstream targets Visual Studio 2022 (toolset v143).
@@ -68,6 +73,10 @@ jobs:
       - name: Install packages in WSL
         shell: cmd
         run: wsl -u root -- sh -c "apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends meson ninja-build gettext python3 pkg-config xsltproc"
+
+      # The committed tree says VcXsrv, as upstream's does; the build renames it.
+      - name: Rebrand to XNTsrv
+        run: C:\Python39\python.exe xntsrv\build\rebrand.py .
 
       - name: freetype
         shell: cmd

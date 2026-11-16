@@ -6,7 +6,7 @@ XNTsrv is a Windows X server, primarily meant as a graphical alternative to Micr
 
 It is based on [VcXsrv](https://github.com/marchaesen/vcxsrv).
 
-> **Status: early development.** There are no releases yet; test installers come from CI. For now they package the unmodified VcXsrv server under the XNTsrv name. See [TODO.md](../TODO.md) for what is done and what is planned.
+> **Status: early development.** There are no releases yet; test installers come from CI. The server in them is built from this repository's VcXsrv source tree, with only its name changed so far. See [TODO.md](../TODO.md) for what is done and what is planned.
 
 ## Installation
 
@@ -77,7 +77,7 @@ journalctl -u xntsrv-bridge -e      # what did it say?
 echo "$DISPLAY $XAUTHORITY"         # are both set? (open a new terminal after installing)
 ```
 
-On the Windows side, check that **XNTsrv WSL** is running in `services.msc`, and that the server is running (the X icon). The server writes a log to `%TEMP%\VCXSrv.0.log`.
+On the Windows side, check that **XNTsrv WSL** is running in `services.msc`, and that the server is running (the X icon). The server writes a log to `%TEMP%\XNTsrv.0.log`.
 
 | Symptom | Likely cause |
 |---|---|
@@ -122,7 +122,7 @@ Remove **XNTsrv** in Windows Settings under Apps. That keeps your settings; to d
 | `xntsrv/tools/` | The services and the `xntsrv-register`, `xntsrv-unregister` and `xntsrv-reset` tools. |
 | `xntsrv/installer/` | The NSIS installer and the script that stages its contents. |
 | `xntsrv/bridge/` | The Linux bridge and its install, update and uninstall scripts. |
-| `xntsrv/build/` | The recipe for building the X server from source (work in progress). |
+| `xntsrv/build/` | The recipe for building the X server from source, and the script that renames it to XNTsrv at build time. |
 | everything else | The VcXsrv source tree, kept identical to upstream wherever possible. |
 
 Branches: `master` is XNTsrv; `upstream` is an untouched mirror of VcXsrv `master`, updated automatically. Changes to upstream files are kept to a minimum so that merging stays painless.

@@ -50,7 +50,11 @@ $info = & "$dir\xwininfo.exe" -root -display 127.0.0.1:0 2>&1 | Out-String
 Check 'a client without the cookie is refused' ($info -notmatch 'Width: \d+')
 Stop-Process -Name xntsrv-server -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
-if (Test-Path "$env:TEMP\VCXSrv.0.log") { Get-Content "$env:TEMP\VCXSrv.0.log" -Tail 15 }
+Write-Output "server product name: $((Get-Item "$dir\xntsrv-server.exe").VersionInfo.ProductName)"
+# The log is XNTsrv.0.log from a build of this repository, VCXSrv.0.log from the upstream release.
+foreach ($log in 'XNTsrv.0.log', 'VCXSrv.0.log') {
+    if (Test-Path "$env:TEMP\$log") { Write-Output "--- $log"; Get-Content "$env:TEMP\$log" -Tail 15 }
+}
 
 # _?= makes the uninstaller run in place and wait, so its own file stays behind.
 Check 'uninstall exits 0' ((Run "$dir\uninstall.exe" @('/S', "_?=$dir")) -eq 0)

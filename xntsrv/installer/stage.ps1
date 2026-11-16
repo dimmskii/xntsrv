@@ -3,8 +3,8 @@
 # The X server comes as an installer made by upstream's own NSIS script:
 # either one built from this repository by the server workflow
 # (-ServerPackage), or, when there is none, the upstream VcXsrv release,
-# downloaded at a pinned version and verified.  Either way it is extracted and
-# vcxsrv.exe is renamed to xntsrv-server.exe.
+# downloaded at a pinned version and verified.  Either way it is extracted,
+# and the server ends up as xntsrv-server.exe.
 #
 # SPDX-License-Identifier: MIT
 param(
@@ -55,7 +55,11 @@ if ($LASTEXITCODE -ne 0) { throw "7z failed with exit code $LASTEXITCODE" }
 Remove-Item -Recurse -Force (Join-Path $OutDir '$PLUGINSDIR')
 Remove-Item -Force (Join-Path $OutDir 'uninstall.exe')
 Remove-Item -Force (Join-Path $OutDir 'xlaunch.exe')   # starts "vcxsrv.exe" by name
-Rename-Item (Join-Path $OutDir 'vcxsrv.exe') 'xntsrv-server.exe'
+# A build from this repository already names its server xntsrv-server.exe.
+if (Test-Path (Join-Path $OutDir 'vcxsrv.exe')) {
+    Rename-Item (Join-Path $OutDir 'vcxsrv.exe') 'xntsrv-server.exe'
+}
+if (-not (Test-Path (Join-Path $OutDir 'xntsrv-server.exe'))) { throw 'The server package contains no server executable' }
 
 foreach ($name in 'xntsrv', 'xntsrvw', 'xntsrv-service', 'xntsrv-register', 'xntsrv-unregister', 'xntsrv-reset') {
     Copy-Item (Join-Path $BinDir "$name.exe") $OutDir
