@@ -34,6 +34,7 @@ expect(0 " -auth [^\n]*XNTsrv\\\\Xauthority -clipboard" --dry-run --server=${S})
 expect(0 "srv.exe :0 "                              -n --no-auth --server ${S})
 
 # Errors and informational options.
+expect(0 "srv.exe :0 -multiwindow "                 ${BASE} --no-appearance)
 expect(2 "unrecognized option '--bogus'"            ${BASE} --bogus)
 expect(2 "unrecognized option '--listen'"           ${BASE} --listen=tcp)
 expect(2 "requires an argument"                     ${BASE} --display)

@@ -61,7 +61,7 @@ if (Test-Path (Join-Path $OutDir 'vcxsrv.exe')) {
 }
 if (-not (Test-Path (Join-Path $OutDir 'xntsrv-server.exe'))) { throw 'The server package contains no server executable' }
 
-foreach ($name in 'xntsrv', 'xntsrvw', 'xntsrv-service', 'xntsrv-register', 'xntsrv-unregister', 'xntsrv-reset') {
+foreach ($name in 'xntsrv', 'xntsrvw', 'xntsrv-appearance', 'xntsrv-service', 'xntsrv-register', 'xntsrv-unregister', 'xntsrv-reset') {
     Copy-Item (Join-Path $BinDir "$name.exe") $OutDir
 }
 

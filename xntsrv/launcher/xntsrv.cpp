@@ -29,6 +29,8 @@ static const wchar_t kHelp[] =
     L"      --no-clipboard      disable clipboard sharing\n"
     L"      --no-gl             disable native OpenGL\n"
     L"      --no-tray           hide the tray icon\n"
+    L"      --no-appearance     do not pass the Windows display scale, font, pointer size\n"
+    L"                          and light or dark preference on to X programs\n"
     L"      --dpi=N             override DPI\n"
     L"      --server=PATH       server binary (default: xntsrv-server.exe beside xntsrv.exe)\n"
     L"  -n, --dry-run           print the server command line and exit\n"
@@ -48,6 +50,7 @@ struct Options {
     bool clipboard = true;
     bool gl = true;
     bool tray = true;
+    bool appearance = true;
     unsigned dpi = 0;
     wstring server;
     bool dryRun = false;
@@ -165,6 +168,7 @@ struct OptSpec {
 static const OptSpec kSpecs[] = {
     { L'd', L"display", true },    { L'm', L"mode", true },        { 0, L"no-auth", false },
     { 0, L"no-clipboard", false }, { 0, L"no-gl", false },         { 0, L"no-tray", false },
+    { 0, L"no-appearance", false },
     { 0, L"dpi", true },           { 0, L"server", true },         { L'n', L"dry-run", false },
     { L'w', L"wait", false },      { L'h', L"help", false },       { L'V', L"version", false },
 };
@@ -197,6 +201,8 @@ static ParseResult Apply(const OptSpec &spec, const wstring &value, Options *o)
         o->gl = false;
     } else if (name == L"no-tray") {
         o->tray = false;
+    } else if (name == L"no-appearance") {
+        o->appearance = false;
     } else if (name == L"dry-run") {
         o->dryRun = true;
     } else if (name == L"wait") {
@@ -447,6 +453,21 @@ static int Run(int argc, wchar_t **argv)
                         DirName(server).c_str(), &si, &pi)) {
         Err(L"cannot start " + server + L" (error " + std::to_wstring(GetLastError()) + L")");
         return 1;
+    }
+
+    /* The helper that passes Windows appearance settings on to X programs.
+     * It waits for the server to come up and ends when the server does, so it
+     * needs no supervision; if it is missing or fails, the server is unaffected. */
+    wstring helper = xnt::ProgramDir() + L"\\xntsrv-appearance.exe";
+    if (o.appearance && FileExists(helper)) {
+        wstring command = Quote(helper) + L" --display=" + std::to_wstring(o.display);
+        STARTUPINFOW hsi = {};
+        PROCESS_INFORMATION hpi;
+        hsi.cb = sizeof hsi;
+        if (CreateProcessW(helper.c_str(), &command[0], NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &hsi, &hpi)) {
+            CloseHandle(hpi.hThread);
+            CloseHandle(hpi.hProcess);
+        }
     }
 
     DWORD code = 0;

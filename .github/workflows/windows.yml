@@ -31,6 +31,19 @@ jobs:
           name: bridge
           path: xntsrv/bridge/xntsrv-bridge
 
+  # The X-protocol half of the appearance helper is portable; its encoders
+  # are unit-tested here.
+  appearance-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: xntsrv/appearance
+      - working-directory: xntsrv/appearance
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -o publish-test test/publish-test.cpp publish.cpp xclient.cpp
+          ./publish-test unit
+
   build:
     needs: bridge
     runs-on: windows-latest

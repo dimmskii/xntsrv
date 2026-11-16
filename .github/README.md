@@ -73,6 +73,8 @@ The same script works in a Linux virtual machine under VMware Workstation or Pla
 
    Each program gets its own Windows window.
 
+X programs follow a few of your Windows settings: the display scale, the interface font, the pointer size, and the light or dark app mode. Change one in Windows and running programs are told. This reaches programs that listen for such settings (GTK 2 and 3, for example) and ones that read X resources; start the server with `xntsrv --no-appearance` to turn it off.
+
 Authentication is on: programs must present a cookie that XNTsrv creates in your Windows profile, and the install script points `XAUTHORITY` at it.
 
 ### If something does not work
@@ -127,6 +129,7 @@ Remove **XNTsrv** in Windows Settings under Apps. That closes the running server
 |---|---|
 | `xntsrv/` | Everything XNTsrv adds. Upstream never touches this directory. |
 | `xntsrv/launcher/` | `xntsrv.exe` and `xntsrvw.exe`. |
+| `xntsrv/appearance/` | `xntsrv-appearance.exe`, which passes Windows appearance settings on to X programs. |
 | `xntsrv/tools/` | The services and the `xntsrv-register`, `xntsrv-unregister` and `xntsrv-reset` tools. |
 | `xntsrv/installer/` | The NSIS installer and the script that stages its contents. |
 | `xntsrv/bridge/` | The Linux bridge and its install, update and uninstall scripts. |

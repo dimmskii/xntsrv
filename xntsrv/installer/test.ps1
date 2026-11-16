@@ -22,7 +22,7 @@ foreach ($pass in 'install', 'install over existing') {
     Check 'Session service running' ((Get-Service XNTsrvSession -ErrorAction SilentlyContinue).Status -eq 'Running')
     Check 'TCP service installed but stopped' ((Get-Service XNTsrvTCP -ErrorAction SilentlyContinue).Status -eq 'Stopped')
     foreach ($f in 'xntsrv.exe', 'xntsrvw.exe', 'xntsrv-server.exe', 'xntsrv-service.exe', 'xntsrv-register.exe',
-                   'xntsrv-unregister.exe', 'xntsrv-reset.exe', 'xkbcomp.exe', 'vcruntime140.dll',
+                   'xntsrv-unregister.exe', 'xntsrv-reset.exe', 'xntsrv-appearance.exe', 'xkbcomp.exe', 'vcruntime140.dll',
                    'guest\xntsrv-bridge', 'NOTICE.txt', 'uninstall.exe', 'xkbdata', 'fonts', 'locale') {
         Check "installed $f" (Test-Path (Join-Path $dir $f))
     }
@@ -57,6 +57,14 @@ Check 'server is running' ($null -ne (Get-Process xntsrv-server -ErrorAction Sil
 $env:XAUTHORITY = Join-Path $env:LOCALAPPDATA 'XNTsrv\Xauthority'
 $info = & "$dir\xwininfo.exe" -root -display 127.0.0.1:0 2>&1 | Out-String
 Check 'an X client can query the server' ($info -match 'Width: \d+')
+# The appearance helper, started with the server, has published the Windows
+# settings as X resources; read them back the way any X program would.
+Check 'appearance helper is running' ($null -ne (Get-Process xntsrv-appearance -ErrorAction SilentlyContinue))
+$resources = & "$dir\xrdb.exe" -display 127.0.0.1:0 -query 2>&1 | Out-String
+Write-Output $resources.Trim()
+Check 'display scale published (Xft.dpi)' ($resources -match 'Xft\.dpi:\s+\d+')
+Check 'pointer size published (Xcursor.size)' ($resources -match 'Xcursor\.size:\s+\d+')
+Write-Output "what the helper reads from this machine: $((& "$dir\xntsrv-appearance.exe" --print) -join ', ')"
 $env:XAUTHORITY = Join-Path $env:TEMP 'no-such-cookie'
 $info = & "$dir\xwininfo.exe" -root -display 127.0.0.1:0 2>&1 | Out-String
 Check 'a client without the cookie is refused' ($info -notmatch 'Width: \d+')
@@ -70,6 +78,7 @@ foreach ($log in 'XNTsrv.0.log', 'VCXSrv.0.log') {
 Check 'uninstall exits 0' ((Run "$dir\uninstall.exe" @('/S', "_?=$dir")) -eq 0)
 Check 'service removed' ($null -eq (ServiceState))
 Check 'the uninstaller closed the running server' ($null -eq (Get-Process xntsrv-server -ErrorAction SilentlyContinue))
+Check 'the appearance helper ended with it' ($null -eq (Get-Process xntsrv-appearance -ErrorAction SilentlyContinue))
 Check 'program files removed' (-not (Test-Path "$dir\xntsrv-server.exe"))
 Check 'shortcut removed' (-not (Test-Path $shortcut))
 Check 'Apps entry removed' (-not (Test-Path $uninstKey))
