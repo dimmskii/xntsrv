@@ -21,7 +21,7 @@ Unicode true
   !error "pass /DOUTFILE=<setup.exe>"
 !endif
 
-!define PUBLISHER "Topmediavision Inc."
+!define PUBLISHER "Dmitri Poterianski"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\XNTsrv"
 ; Upstream's own icon and licence text, used as they are.
 !define ICON "..\..\xorg-server\hw\xwin\X.ico"

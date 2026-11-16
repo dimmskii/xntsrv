@@ -46,6 +46,10 @@ RULES = [
         ('#define XVENDORNAME "The VcXsrv Project"', f'#define XVENDORNAME "The {NAME} Project"', 1),
         ('#define BUILDERADDR "https://github.com/marchaesen"', f'#define BUILDERADDR "{URL}"', 1),
     ]),
+    # The vendor string X clients are sent when they connect (xdpyinfo shows it).
+    ("xorg-server/include/version-config.h", [
+        ('#define VENDOR_NAME  "HC-Consult"', f'#define VENDOR_NAME  "The {NAME} Project"', 1),
+    ]),
     ("xorg-server/include/xwin-config.h", [
         ('#define XVENDORNAMESHORT "VcXsrv"', f'#define XVENDORNAMESHORT "{NAME}"', 1),
     ]),
