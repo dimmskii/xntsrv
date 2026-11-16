@@ -12,6 +12,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include "../publish.h"
+#include "../theme.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -97,6 +98,16 @@ static int Unit()
               merged.find("UXTerm*saveLines:\t8971\n") != std::string::npos &&
               merged.find("XTerm*cursorUnderLine:\ttrue\n") != std::string::npos &&
               merged.find("URxvt*cursorUnderline:\ttrue\n") != std::string::npos);
+
+    ClassicColors colors;
+    colors.window = 0x112233;
+    colors.selection = 0xff0000;
+    std::string css = Gtk3Colors(colors), rc = Gtk2Colors(colors);
+    Check("theme: GTK 3 colours", css.find("@define-color xnt_window #112233;\n") != std::string::npos &&
+                                      css.find("@define-color xnt_selection #ff0000;\n") != std::string::npos &&
+                                      css.find("@define-color xnt_hover #281f2e;\n") != std::string::npos);
+    Check("theme: GTK 2 colours", rc.find("gtk-color-scheme = \"bg_color:#f0f0f0\\nfg_color:#000000\\nbase_color:#112233") != std::string::npos &&
+                                      rc.find("selected_bg_color:#ff0000") != std::string::npos && rc.back() == '\n');
 
     /* One wildcard-family entry, as the launcher writes it. */
     std::string file("\xff\xff\x00\x00\x00\x01" "0" "\x00\x12" "MIT-MAGIC-COOKIE-1" "\x00\x04" "ABCD", 33);

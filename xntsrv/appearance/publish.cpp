@@ -109,6 +109,8 @@ bool Publisher::Write(const Appearance &a)
     settings.SetInt("Gtk/ApplicationPreferDarkTheme", a.preferDark ? 1 : 0);
     if (!a.font.empty())
         settings.SetString("Gtk/FontName", a.font);
+    if (!a.gtkTheme.empty())
+        settings.SetString("Net/ThemeName", a.gtkTheme);
     x_->ChangeProperty(owner_, settingsAtom_, settingsAtom_, settings.Encode(++serial_));
 
     /* X resources reach programs that do not read XSETTINGS.  Whatever else is

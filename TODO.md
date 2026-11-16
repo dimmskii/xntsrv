@@ -22,6 +22,7 @@ In intended order.
 3. **Rendering and responsiveness.** Ordinary windows already get modern title bars. Open points:
     - Shaped windows such as `xeyes` show the classic Windows title bar that is normally hidden.
     - The display has felt laggier than X410 over TCP, somewhat less so with the server built from this repository. Measurements through both relays show high throughput (an 8 MB screenshot in 0.17 s, 240 frames a second from `glxgears`), which points away from the relays and towards the server's window handling or connection set-up (about 50 ms per new connection).
+    - Opening a menu takes about 90 ms, against 17 ms to repaint an existing window and 0.3 ms for a round trip. The figure is the same to within a millisecond under Adwaita and under XNTsrv's flat theme, so it is not the theme's drawing: it is the cost of creating and showing a new window on the server. This is the most likely source of the sluggish feel of menus.
     - OpenGL through the X server (indirect rendering, `LIBGL_ALWAYS_INDIRECT=1`) reaches the Windows graphics card but is not healthy: `glxinfo` reports `GLXBadCurrentWindow`, `glxgears` prints no frame count, and it only offers OpenGL 1.4. Inherited from upstream. By default programs render in software inside the guest, which works.
 4. **Loopback-only TCP in the server.** Replaces the firewall block rule with a server that never opens a network port.
 5. **Pick up xorg security fixes.** Upstream VcXsrv's last release was 21.1.16.1 (March 2025); check what xorg-server has fixed since.
@@ -36,7 +37,7 @@ In intended order.
     1. ~~DPI, UI font, cursor size and light/dark preference.~~ Done: `xntsrv-appearance.exe`, started by the launcher. Not yet checked: what each toolkit does with the values, and live changes on a real desktop.
     2. ~~Terminal colours from the Windows console palette, as xterm resources.~~ Done, for xterm-style terminals, along with the console's font and size, window size, scrollback and cursor shape.
     3. ~~The Windows cursor scheme converted to X cursor files (WSL first, read through `/mnt/c`).~~ Done for WSL. Still to do: get the theme to guests that cannot read the Windows profile (VMware), and the real frame rate of animated pointers (a fixed 50 ms per frame is used).
-    4. A GTK 2 and GTK 3 colour scheme generated from the classic system colours; Qt and others later.
+    4. ~~A GTK 2 and GTK 3 colour scheme generated from the classic system colours.~~ Done for WSL: a flat theme with no pictures, gradients, shadows or animations, used in light mode. The GTK 3 theme was checked against `gtk3-widget-factory`; the GTK 2 one has not been seen running. Still to do: Qt and other toolkits, reloading running programs when the Windows colours change, and guests that cannot read the Windows profile.
 
 ## Known gaps
 

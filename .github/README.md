@@ -43,7 +43,7 @@ That installs three things:
 |---|---|
 | `/usr/local/bin/xntsrv-bridge` | The bridge. Taken from the Windows install, or built from source if that copy is missing. |
 | `/etc/systemd/system/xntsrv-bridge.service` | Keeps the bridge running. On a distribution without systemd there is no service, and the bridge starts with your login shell instead. |
-| `/etc/profile.d/xntsrv.sh` | Sets `DISPLAY`, `XAUTHORITY` and the cursor theme path for login shells. |
+| `/etc/profile.d/xntsrv.sh` | Sets `DISPLAY`, `XAUTHORITY` and the cursor and GTK theme paths for login shells. |
 
 To remove or update it:
 
@@ -75,7 +75,7 @@ The same script works in a Linux virtual machine under VMware Workstation or Pla
 
 X programs follow a few of your Windows settings: the display scale, the interface font, the pointer scheme and size, the light or dark app mode, and, for xterm-style terminals, the look of the Windows console: its colours, font and size, window size, scrollback and cursor shape. Change one in Windows and running programs are told; terminal settings apply to terminals opened afterwards. This reaches programs that listen for such settings (GTK 2 and 3, for example) and ones that read X resources; start the server with `xntsrv --no-appearance` to turn it off.
 
-The pointer scheme is converted into an X cursor theme in your Windows profile. WSL distributions pick it up through the install script's profile file (run the update script once if you installed the bridge before this existed); other guests keep their own cursors for now.
+The pointer scheme is converted into an X cursor theme, and GTK 2 and GTK 3 programs get a theme in your classic Windows colours, drawn flat with no pictures, shadows or animations. (In Windows' dark mode the colours stay light, so GTK's own dark theme is used there.) Both are generated in your Windows profile. WSL distributions pick them up through the install script's profile file (run the update script once if you installed the bridge before this existed); other guests keep their own cursors and theme for now.
 
 Authentication is on: programs must present a cookie that XNTsrv creates in your Windows profile, and the install script points `XAUTHORITY` at it.
 

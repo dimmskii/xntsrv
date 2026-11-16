@@ -41,7 +41,7 @@ jobs:
           sparse-checkout: xntsrv/appearance
       - working-directory: xntsrv/appearance
         run: |
-          g++ -std=c++17 -Wall -Wextra -Werror -o publish-test test/publish-test.cpp publish.cpp xclient.cpp
+          g++ -std=c++17 -Wall -Wextra -Werror -o publish-test test/publish-test.cpp publish.cpp xclient.cpp theme.cpp
           ./publish-test unit
 
   build:

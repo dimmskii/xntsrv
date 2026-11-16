@@ -6,7 +6,7 @@
 # It installs:
 #   /usr/local/bin/xntsrv-bridge              the forwarder
 #   /etc/systemd/system/xntsrv-bridge.service a service that keeps it running
-#   /etc/profile.d/xntsrv.sh                  DISPLAY, XAUTHORITY and the cursor theme path for login shells
+#   /etc/profile.d/xntsrv.sh                  DISPLAY, XAUTHORITY and the cursor and GTK theme paths for login shells
 #
 # On a distribution without systemd there is no service; the profile script
 # starts the bridge at login instead.  xntsrv-uninstall.sh removes all of it.
@@ -195,6 +195,12 @@ install_profile() {
             echo "case \":\${XCURSOR_PATH:-}:\" in"
             echo "    *:$(quote "$icons"):*) ;;"
             echo "    *) export XCURSOR_PATH=$(quote "$icons")\":\${XCURSOR_PATH:-\$HOME/.icons:/usr/share/icons:/usr/share/pixmaps}\" ;;"
+            echo 'esac'
+            # ...and the GTK themes it generates, on the data path GTK searches.
+            data="$(dirname "$cookie")/share"
+            echo "case \":\${XDG_DATA_DIRS:-}:\" in"
+            echo "    *:$(quote "$data"):*) ;;"
+            echo "    *) export XDG_DATA_DIRS=$(quote "$data")\":\${XDG_DATA_DIRS:-/usr/local/share:/usr/share}\" ;;"
             echo 'esac'
         fi
         if ! has_systemd; then

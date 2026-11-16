@@ -23,7 +23,7 @@ foreach ($pass in 'install', 'install over existing') {
     Check 'TCP service installed but stopped' ((Get-Service XNTsrvTCP -ErrorAction SilentlyContinue).Status -eq 'Stopped')
     foreach ($f in 'xntsrv.exe', 'xntsrvw.exe', 'xntsrv-server.exe', 'xntsrv-service.exe', 'xntsrv-register.exe',
                    'xntsrv-unregister.exe', 'xntsrv-reset.exe', 'xntsrv-appearance.exe', 'xkbcomp.exe', 'vcruntime140.dll',
-                   'guest\xntsrv-bridge', 'NOTICE.txt', 'uninstall.exe', 'xkbdata', 'fonts', 'locale') {
+                   'guest\xntsrv-bridge', 'theme\gtk-3.0\gtk.css', 'theme\gtk-2.0\gtkrc', 'theme\index.theme', 'NOTICE.txt', 'uninstall.exe', 'xkbdata', 'fonts', 'locale') {
         Check "installed $f" (Test-Path (Join-Path $dir $f))
     }
     Check 'no vcxsrv.exe, xlaunch.exe or installer leftovers' (-not ((Test-Path "$dir\vcxsrv.exe") -or
@@ -68,6 +68,8 @@ Check 'terminal colours published' ($resources -match '\*color1:\s+#[0-9a-f]{6}'
 Check 'pointer scheme published (Xcursor.theme)' ($resources -match 'Xcursor\.theme:\s+XNTsrv')
 $themeDir = Join-Path $env:LOCALAPPDATA 'XNTsrv\share\icons\XNTsrv'
 Check 'pointer scheme converted into the user data folder' ((Test-Path "$themeDir\index.theme") -and (Get-ChildItem "$themeDir\cursors" -ErrorAction SilentlyContinue).Count -ge 40)
+$gtkDir = Join-Path $env:LOCALAPPDATA 'XNTsrv\share\themes\XNTsrv'
+Check 'GTK themes written with generated colours' ((Test-Path "$gtkDir\gtk-3.0\gtk.css") -and (Test-Path "$gtkDir\gtk-2.0\gtkrc") -and ((Get-Content "$gtkDir\gtk-3.0\colors.css" -Raw) -match '@define-color xnt_selection #[0-9a-f]{6};') -and ((Get-Content "$gtkDir\gtk-2.0\colors.rc" -Raw) -match 'gtk-color-scheme'))
 Check 'terminal font and size published' ($resources -match 'XTerm\*faceSize:\s+\d+' -and $resources -match 'XTerm\*geometry:\s+\d+x\d+')
 Write-Output "what the helper reads from this machine: $((& "$dir\xntsrv-appearance.exe" --print) -join ', ')"
 # Without the cookie nobody gets in, whichever name this computer is reached by.

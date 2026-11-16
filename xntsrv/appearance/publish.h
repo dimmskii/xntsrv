@@ -15,6 +15,7 @@ struct Appearance {
     int cursorSize = 32;   /* in pixels */
     std::string cursorTheme; /* name of the X cursor theme to use; empty for the guest's own */
     bool preferDark = false;
+    std::string gtkTheme;  /* name of the GTK theme to use; empty for the guest's own */
     /* Terminal colours: 16 values as 0xRRGGBB in the order terminals number
      * them (black, red, green, yellow, blue, magenta, cyan, white, then the
      * bright ones), and which of them are the default text and background.
@@ -33,7 +34,7 @@ struct Appearance {
     bool operator==(const Appearance &o) const
     {
         return dpi == o.dpi && font == o.font && cursorSize == o.cursorSize && preferDark == o.preferDark &&
-               cursorTheme == o.cursorTheme &&
+               cursorTheme == o.cursorTheme && gtkTheme == o.gtkTheme &&
                palette == o.palette && foreground == o.foreground && background == o.background &&
                terminalFont == o.terminalFont && terminalBold == o.terminalBold &&
                terminalPoints == o.terminalPoints && terminalColumns == o.terminalColumns &&

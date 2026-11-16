@@ -69,6 +69,9 @@ foreach ($name in 'xntsrv', 'xntsrvw', 'xntsrv-appearance', 'xntsrv-service', 'x
     Copy-Item (Join-Path $BinDir "$name.exe") $OutDir
 }
 
+# The static files of the GTK themes; the appearance helper adds the colours.
+Copy-Item -Recurse (Join-Path $PSScriptRoot '..\appearance\theme') (Join-Path $OutDir 'theme')
+
 # The Linux-side forwarder, to be copied into the guest from /mnt/c.
 New-Item -ItemType Directory -Force (Join-Path $OutDir 'guest') | Out-Null
 Copy-Item $Bridge (Join-Path $OutDir 'guest\xntsrv-bridge')

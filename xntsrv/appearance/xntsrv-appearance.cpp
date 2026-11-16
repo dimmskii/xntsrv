@@ -24,6 +24,7 @@
 
 #include "cursors-win.h"
 #include "publish.h"
+#include "theme-win.h"
 
 using std::wstring;
 
@@ -133,6 +134,13 @@ static Appearance ReadWindows(unsigned xWidth)
 
     a.preferDark = RegistryNumber(L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
                                   L"AppsUseLightTheme", 1) == 0;
+
+    /* GTK programs get a flat theme in the classic Windows colours.  Those
+     * colours stay light when Windows is in dark mode, so there the guest's
+     * own dark theme is left to do the job. */
+    wstring gtkTheme = GtkThemeDir();
+    if (!a.preferDark && !gtkTheme.empty() && WriteGtkTheme(xnt::ProgramDir() + L"\\theme", gtkTheme))
+        a.gtkTheme = kGtkThemeName;
 
     /* The colours of the Windows console (cmd, PowerShell), for X terminals.
      * Where the user has not changed one, Windows' own default applies. */
@@ -264,6 +272,7 @@ static void Print(const Appearance &a)
     Out(L"cursor=" + std::to_wstring(a.cursorSize));
     Out(L"dark=" + std::to_wstring(a.preferDark ? 1 : 0));
     Out(L"font=" + WideUtf8(a.font));
+    Out(L"gtk-theme=" + WideUtf8(a.gtkTheme));
     for (const auto &resource : ResourcesFor(a))
         Out(WideUtf8(resource.first + ": " + resource.second));
 }
