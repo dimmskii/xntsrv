@@ -20,11 +20,23 @@ struct Appearance {
      * Empty when not known. */
     std::vector<uint32_t> palette;
     int foreground = 7, background = 0;
+    /* The rest of the console's look, for terminals.  Unset when
+     * terminalPoints is 0. */
+    std::string terminalFont; /* family, e.g. "Consolas"; may be empty */
+    bool terminalBold = false;
+    int terminalPoints = 0;
+    int terminalColumns = 0, terminalRows = 0;
+    int terminalScrollback = 0;         /* lines kept above the window */
+    bool terminalUnderlineCursor = false; /* otherwise a block */
 
     bool operator==(const Appearance &o) const
     {
         return dpi == o.dpi && font == o.font && cursorSize == o.cursorSize && preferDark == o.preferDark &&
-               palette == o.palette && foreground == o.foreground && background == o.background;
+               palette == o.palette && foreground == o.foreground && background == o.background &&
+               terminalFont == o.terminalFont && terminalBold == o.terminalBold &&
+               terminalPoints == o.terminalPoints && terminalColumns == o.terminalColumns &&
+               terminalRows == o.terminalRows && terminalScrollback == o.terminalScrollback &&
+               terminalUnderlineCursor == o.terminalUnderlineCursor;
     }
 };
 

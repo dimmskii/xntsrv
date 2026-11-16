@@ -73,6 +73,23 @@ static int Unit()
                                                              merged.find("XTerm*background:\t#444444\n") != std::string::npos &&
                                                              merged.find("URxvt*background:\t#444444\n") != std::string::npos);
     Check("resources for: nothing sets a bare *background", merged.find("\n*background") == std::string::npos);
+    Check("resources for: no terminal look unless given", merged.find("faceSize") == std::string::npos);
+    a.terminalFont = "Consolas";
+    a.terminalBold = true;
+    a.terminalPoints = 12;
+    a.terminalColumns = 120;
+    a.terminalRows = 30;
+    a.terminalScrollback = 8971;
+    a.terminalUnderlineCursor = true;
+    merged = MergeResources("", ResourcesFor(a));
+    Check("resources for: terminal font", merged.find("XTerm*faceName:\tConsolas:bold\n") != std::string::npos &&
+                                              merged.find("XTerm*faceSize:\t12\n") != std::string::npos &&
+                                              merged.find("URxvt*font:\txft:Consolas:bold:size=12\n") != std::string::npos);
+    Check("resources for: terminal size, history and cursor",
+          merged.find("XTerm*geometry:\t120x30\n") != std::string::npos &&
+              merged.find("UXTerm*saveLines:\t8971\n") != std::string::npos &&
+              merged.find("XTerm*cursorUnderLine:\ttrue\n") != std::string::npos &&
+              merged.find("URxvt*cursorUnderline:\ttrue\n") != std::string::npos);
 
     /* One wildcard-family entry, as the launcher writes it. */
     std::string file("\xff\xff\x00\x00\x00\x01" "0" "\x00\x12" "MIT-MAGIC-COOKIE-1" "\x00\x04" "ABCD", 33);

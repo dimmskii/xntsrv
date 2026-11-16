@@ -31,6 +31,31 @@ std::vector<std::pair<std::string, std::string>> ResourcesFor(const Appearance &
             r.push_back({ std::string(program) + "*background", Hex(a.palette[(size_t)(a.background & 15)]) });
         }
     }
+    if (a.terminalPoints > 0) {
+        std::string size = std::to_string(a.terminalPoints);
+        std::string geometry = std::to_string(a.terminalColumns) + "x" + std::to_string(a.terminalRows);
+        std::string lines = std::to_string(a.terminalScrollback);
+        std::string underline = a.terminalUnderlineCursor ? "true" : "false";
+        /* A fontconfig pattern.  If the guest does not have the font, the
+         * terminal falls back to its default one at this size. */
+        std::string face = a.terminalFont + (a.terminalBold && !a.terminalFont.empty() ? ":bold" : "");
+
+        for (const char *program : { "XTerm", "UXTerm" }) {
+            std::string p = program;
+            if (!face.empty())
+                r.push_back({ p + "*faceName", face });
+            r.push_back({ p + "*faceSize", size });
+            if (a.terminalColumns > 0 && a.terminalRows > 0)
+                r.push_back({ p + "*geometry", geometry });
+            r.push_back({ p + "*saveLines", lines });
+            r.push_back({ p + "*cursorUnderLine", underline });
+        }
+        r.push_back({ "URxvt*font", "xft:" + (face.empty() ? std::string("monospace") : face) + ":size=" + size });
+        if (a.terminalColumns > 0 && a.terminalRows > 0)
+            r.push_back({ "URxvt*geometry", geometry });
+        r.push_back({ "URxvt*saveLines", lines });
+        r.push_back({ "URxvt*cursorUnderline", underline });
+    }
     return r;
 }
 

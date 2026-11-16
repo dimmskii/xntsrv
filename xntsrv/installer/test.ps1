@@ -65,6 +65,7 @@ Write-Output ($resources.Trim() -split "`r?`n" | Select-Object -First 4)
 Check 'display scale published (Xft.dpi)' ($resources -match 'Xft\.dpi:\s+\d+')
 Check 'pointer size published (Xcursor.size)' ($resources -match 'Xcursor\.size:\s+\d+')
 Check 'terminal colours published' ($resources -match '\*color1:\s+#[0-9a-f]{6}' -and $resources -match 'XTerm\*background:\s+#[0-9a-f]{6}')
+Check 'terminal font and size published' ($resources -match 'XTerm\*faceSize:\s+\d+' -and $resources -match 'XTerm\*geometry:\s+\d+x\d+')
 Write-Output "what the helper reads from this machine: $((& "$dir\xntsrv-appearance.exe" --print) -join ', ')"
 # Without the cookie nobody gets in, whichever name this computer is reached by.
 $env:XAUTHORITY = Join-Path $env:TEMP 'no-such-cookie'

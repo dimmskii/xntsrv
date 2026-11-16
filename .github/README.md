@@ -73,7 +73,7 @@ The same script works in a Linux virtual machine under VMware Workstation or Pla
 
    Each program gets its own Windows window.
 
-X programs follow a few of your Windows settings: the display scale, the interface font, the pointer size, the light or dark app mode, and, for xterm-style terminals, the colours of the Windows console. Change one in Windows and running programs are told; terminal colours apply to terminals opened afterwards. This reaches programs that listen for such settings (GTK 2 and 3, for example) and ones that read X resources; start the server with `xntsrv --no-appearance` to turn it off.
+X programs follow a few of your Windows settings: the display scale, the interface font, the pointer size, the light or dark app mode, and, for xterm-style terminals, the look of the Windows console: its colours, font and size, window size, scrollback and cursor shape. Change one in Windows and running programs are told; terminal settings apply to terminals opened afterwards. This reaches programs that listen for such settings (GTK 2 and 3, for example) and ones that read X resources; start the server with `xntsrv --no-appearance` to turn it off.
 
 Authentication is on: programs must present a cookie that XNTsrv creates in your Windows profile, and the install script points `XAUTHORITY` at it.
 

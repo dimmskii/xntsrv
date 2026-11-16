@@ -144,6 +144,33 @@ static Appearance ReadWindows(unsigned xWidth)
     DWORD screen = RegistryNumber(L"Console", L"ScreenColors", 0x07);
     a.foreground = kTerminalIndex[screen & 7] | (int)(screen & 8);
     a.background = kTerminalIndex[(screen >> 4) & 7] | (int)((screen >> 4) & 8);
+
+    /* The console's font, window size, history and cursor.  The defaults are
+     * what Windows 10 and 11 use when nothing has been changed. */
+    wchar_t face[LF_FACESIZE] = L"";
+    DWORD faceBytes = sizeof face;
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Console", L"FaceName", RRF_RT_REG_SZ, NULL, face, &faceBytes) != ERROR_SUCCESS ||
+        !face[0] || lstrcmpW(face, L"__DefaultTTFont__") == 0)
+        lstrcpyW(face, L"Consolas");
+    /* "Terminal" is the old bitmap font, which has no counterpart to ask for. */
+    a.terminalFont = lstrcmpiW(face, L"Terminal") == 0 ? "" : Utf8(face);
+    a.terminalBold = RegistryNumber(L"Console", L"FontWeight", 400) >= 600;
+    /* High half: the character height in pixels at 100% scale. */
+    int pixels = (int)(RegistryNumber(L"Console", L"FontSize", 0x00100000) >> 16);
+    a.terminalPoints = pixels >= 6 && pixels <= 144 ? MulDiv(pixels, 72, 96) : 12;
+    /* High half: rows; low half: columns. */
+    DWORD window = RegistryNumber(L"Console", L"WindowSize", 0x001E0078);
+    DWORD buffer = RegistryNumber(L"Console", L"ScreenBufferSize", 0x23290078);
+    a.terminalColumns = (int)(window & 0xffff);
+    a.terminalRows = (int)(window >> 16);
+    if (a.terminalColumns < 20 || a.terminalColumns > 1000 || a.terminalRows < 5 || a.terminalRows > 500) {
+        a.terminalColumns = 120;
+        a.terminalRows = 30;
+    }
+    int history = (int)(buffer >> 16) - a.terminalRows;
+    a.terminalScrollback = history < 0 ? 0 : history > 100000 ? 100000 : history;
+    /* The cursor's height as a percentage of the cell: small means a line. */
+    a.terminalUnderlineCursor = RegistryNumber(L"Console", L"CursorSize", 25) < 50;
     return a;
 }
 
