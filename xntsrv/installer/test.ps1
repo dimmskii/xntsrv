@@ -57,6 +57,24 @@ Check 'server is running' ($null -ne (Get-Process xntsrv-server -ErrorAction Sil
 $env:XAUTHORITY = Join-Path $env:LOCALAPPDATA 'XNTsrv\Xauthority'
 $info = & "$dir\xwininfo.exe" -root -display 127.0.0.1:0 2>&1 | Out-String
 Check 'an X client can query the server' ($info -match 'Width: \d+')
+function Probe([string] $label) {
+    $saved = $env:XAUTHORITY
+    Write-Output "=== $label"
+    Write-Output ("xhost: " + ((& "$dir\xhost.exe" -display 127.0.0.1:0 2>&1 | Out-String).Trim() -replace "`r?`n", ' | '))
+    $env:XAUTHORITY = Join-Path $env:TEMP 'no-such-cookie'
+    foreach ($d in '127.0.0.1:0', 'localhost:0', '[::1]:0') {
+        $o = (& "$dir\xwininfo.exe" -root -display $d 2>&1 | Out-String).Trim() -replace "`r?`n", ' | '
+        Write-Output ("no cookie via ${d}: " + $o.Substring(0, [Math]::Min(140, $o.Length)))
+    }
+    $env:XAUTHORITY = $saved
+}
+Probe 'helper running'
+Stop-Process -Name xntsrv-appearance -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 2
+Probe 'helper stopped'
+& "$dir\xntsrv-appearance.exe" --display=0 &
+Start-Sleep -Seconds 4
+Probe 'helper started again by hand' 
 # The appearance helper, started with the server, has published the Windows
 # settings as X resources; read them back the way any X program would.
 Check 'appearance helper is running' ($null -ne (Get-Process xntsrv-appearance -ErrorAction SilentlyContinue))
