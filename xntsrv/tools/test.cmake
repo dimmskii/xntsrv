@@ -43,6 +43,7 @@ set(TCP_KEY "HKLM\\SOFTWARE\\XNTsrv\\TCP")
 execute_process(COMMAND ${BIN}/xntsrv-reset.exe --yes OUTPUT_QUIET ERROR_QUIET)
 expect(1 "cannot be started directly" ${BIN}/xntsrv-service.exe)
 expect(1 "cannot be started directly" ${BIN}/xntsrv-service.exe bogus)
+expect(1 "cannot be started directly" ${BIN}/xntsrv-service.exe bogus --console)
 expect(1 "" ${FW})
 
 # A service left by an earlier version is cleaned up by register.

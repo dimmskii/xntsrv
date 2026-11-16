@@ -21,6 +21,9 @@
  *
  * Installed and removed by xntsrv-register and xntsrv-unregister.
  *
+ * For troubleshooting, "xntsrv-service MODE --console" runs a mode in the
+ * foreground as the current user, saying what it does, until Ctrl+C.
+ *
  * SPDX-License-Identifier: MIT
  */
 #define FD_SETSIZE 128
@@ -49,7 +52,15 @@ static const xnt::ServiceInfo *g_service;
 static SERVICE_STATUS_HANDLE g_status;
 static HANDLE g_stop;
 
+static bool g_console; /* running in the foreground: say what happens */
+
 static bool Stopping() { return WaitForSingleObject(g_stop, 0) == WAIT_OBJECT_0; }
+
+static void Log(const std::wstring &text)
+{
+    if (g_console)
+        xnt::ConsoleWrite(STD_OUTPUT_HANDLE, text + L"\n");
+}
 
 /* ---- relay ------------------------------------------------------------- */
 
@@ -114,7 +125,11 @@ static DWORD WINAPI Connection(LPVOID param)
     if (server != INVALID_SOCKET && connect(server, (sockaddr *)&addr, sizeof addr) == 0) {
         int on = 1;
         setsockopt(server, IPPROTO_TCP, TCP_NODELAY, (const char *)&on, sizeof on);
+        Log(L"connection accepted, relaying to the X server");
         Relay(client, server);
+        Log(L"connection closed");
+    } else {
+        Log(L"connection accepted, but no X server answers on 127.0.0.1:" + std::to_wstring(xnt::kXBasePort));
     }
     /* If no X server is running, the client simply sees the connection close. */
     if (server != INVALID_SOCKET)
@@ -242,8 +257,10 @@ struct SockaddrVm {
 static SOCKET ListenOnVmci()
 {
     int family = VmciAddressFamily();
-    if (family < 0)
+    if (family < 0) {
+        Log(L"VMware's socket driver is not available on this computer");
         return INVALID_SOCKET;
+    }
 
     SockaddrVm addr = {};
     addr.family = (unsigned short)family;
@@ -251,12 +268,19 @@ static SOCKET ListenOnVmci()
     addr.cid = (unsigned int)-1; /* any: guests address the host as CID 2 */
 
     SOCKET s = socket(family, SOCK_STREAM, 0);
-    if (s == INVALID_SOCKET)
+    if (s == INVALID_SOCKET) {
+        Log(L"cannot create a VMware socket (family " + std::to_wstring(family) + L", error " +
+            std::to_wstring(WSAGetLastError()) + L")");
         return s;
+    }
     if (bind(s, (sockaddr *)&addr, sizeof addr) != 0 || listen(s, SOMAXCONN) != 0) {
+        Log(L"cannot listen on VMware socket port " + std::to_wstring(xnt::kVsockPort) + L" (error " +
+            std::to_wstring(WSAGetLastError()) + L")");
         closesocket(s);
         return INVALID_SOCKET;
     }
+    Log(L"listening on VMware socket port " + std::to_wstring(xnt::kVsockPort) + L" (family " +
+        std::to_wstring(family) + L")");
     return s;
 }
 
@@ -441,6 +465,23 @@ static DWORD WINAPI Handler(DWORD control, DWORD, LPVOID, LPVOID)
     }
 }
 
+/* Run the selected mode until asked to stop. */
+static void Serve()
+{
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
+        return;
+    if (lstrcmpW(g_service->mode, L"wsl") == 0)
+        ServeWsl();
+    else if (lstrcmpW(g_service->mode, L"tcp") == 0)
+        ServeTcp();
+    else if (lstrcmpW(g_service->mode, L"vmware") == 0)
+        ServeVmware();
+    else
+        WaitForSingleObject(g_stop, INFINITE); /* placeholder services do nothing yet */
+    WSACleanup();
+}
+
 static void WINAPI ServiceMain(DWORD, LPWSTR *)
 {
     g_status = RegisterServiceCtrlHandlerExW(g_service->name, Handler, NULL);
@@ -448,29 +489,33 @@ static void WINAPI ServiceMain(DWORD, LPWSTR *)
         return;
     g_stop = CreateEventW(NULL, TRUE, FALSE, NULL);
 
-    WSADATA wsa;
-    if (WSAStartup(MAKEWORD(2, 2), &wsa) == 0) {
-        Report(SERVICE_RUNNING);
-        if (lstrcmpW(g_service->mode, L"wsl") == 0)
-            ServeWsl();
-        else if (lstrcmpW(g_service->mode, L"tcp") == 0)
-            ServeTcp();
-        else if (lstrcmpW(g_service->mode, L"vmware") == 0)
-            ServeVmware();
-        else
-            WaitForSingleObject(g_stop, INFINITE); /* placeholder services do nothing yet */
-        WSACleanup();
-    }
+    Report(SERVICE_RUNNING);
+    Serve();
     /* Connections still being relayed end with the process. */
     Report(SERVICE_STOPPED);
 }
 
+static BOOL WINAPI ConsoleStop(DWORD)
+{
+    SetEvent(g_stop);
+    return TRUE;
+}
+
 int wmain(int argc, wchar_t **argv)
 {
+    g_console = argc == 3 && lstrcmpW(argv[2], L"--console") == 0;
     for (const xnt::ServiceInfo &info : xnt::kServices)
-        if (argc == 2 && lstrcmpW(argv[1], info.mode) == 0)
+        if ((argc == 2 || g_console) && lstrcmpW(argv[1], info.mode) == 0)
             g_service = &info;
 
+    if (g_service && g_console) {
+        g_stop = CreateEventW(NULL, TRUE, FALSE, NULL);
+        SetConsoleCtrlHandler(ConsoleStop, TRUE);
+        Log(std::wstring(L"xntsrv-service: running ") + g_service->displayName +
+            L" in the foreground; press Ctrl+C to stop");
+        Serve();
+        return 0;
+    }
     if (g_service) {
         wchar_t name[64];
         lstrcpynW(name, g_service->name, ARRAYSIZE(name));
