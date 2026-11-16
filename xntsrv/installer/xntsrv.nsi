@@ -21,6 +21,7 @@ Unicode true
   !error "pass /DOUTFILE=<setup.exe>"
 !endif
 
+!define PUBLISHER "Topmediavision Inc."
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\XNTSrv"
 ; Upstream's own icon and licence text, used as they are.
 !define ICON "..\..\xorg-server\hw\xwin\X.ico"
@@ -41,7 +42,8 @@ VIAddVersionKey "ProductName" "XNTSrv"
 VIAddVersionKey "FileDescription" "XNTSrv Setup"
 VIAddVersionKey "FileVersion" "${VERSION}"
 VIAddVersionKey "ProductVersion" "${VERSION}"
-VIAddVersionKey "LegalCopyright" "XNTSrv contributors; includes VcXsrv, see NOTICE.txt"
+VIAddVersionKey "CompanyName" "${PUBLISHER}"
+VIAddVersionKey "LegalCopyright" "${PUBLISHER}; includes VcXsrv, see NOTICE.txt"
 
 Page license
 Page directory
@@ -83,7 +85,7 @@ Section "XNTSrv"
 
   WriteRegStr HKLM "${UNINSTKEY}" "DisplayName" "XNTSrv"
   WriteRegStr HKLM "${UNINSTKEY}" "DisplayVersion" "${VERSION}"
-  WriteRegStr HKLM "${UNINSTKEY}" "Publisher" "XNTSrv contributors"
+  WriteRegStr HKLM "${UNINSTKEY}" "Publisher" "${PUBLISHER}"
   WriteRegStr HKLM "${UNINSTKEY}" "URLInfoAbout" "https://github.com/dimmskii/xntsrv"
   WriteRegStr HKLM "${UNINSTKEY}" "DisplayIcon" "$INSTDIR\xntsrv-server.exe"
   WriteRegStr HKLM "${UNINSTKEY}" "InstallLocation" "$INSTDIR"

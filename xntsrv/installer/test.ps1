@@ -29,6 +29,7 @@ foreach ($pass in 'install', 'install over existing') {
         (Test-Path "$dir\xlaunch.exe") -or (Test-Path "$dir\`$PLUGINSDIR")))
     Check 'Start menu shortcut' (Test-Path $shortcut)
     Check 'listed in Apps' ((Get-ItemProperty $uninstKey -ErrorAction SilentlyContinue).DisplayName -eq 'XNTSrv')
+    Check 'publisher is Topmediavision Inc.' ((Get-ItemProperty $uninstKey -ErrorAction SilentlyContinue).Publisher -eq 'Topmediavision Inc.')
     Check 'firewall rule present' ($null -ne (Get-NetFirewallRule -DisplayName 'XNTSrv server (block inbound)' -ErrorAction SilentlyContinue))
     Check 'install location registered' ((Get-ItemProperty 'HKLM:\SOFTWARE\XNTSrv').InstallDir -eq $dir)
 }
