@@ -1,12 +1,20 @@
 name: server
 
-# Builds the X server from source.  Work in progress, and slow, so for now it
-# only runs when started by hand from the Actions tab.
+# Builds the X server from source and packages it with upstream's installer
+# script.  Takes about 20 minutes, so it runs only when the server's sources or
+# the build recipe change, or when started by hand.  The windows workflow picks
+# up the package from the latest successful run.
 on:
   workflow_dispatch:
-  # push:
-  #   branches: [master]
-  #   paths: ['xntsrv/build/**', '.github/workflows/server.yml']
+  push:
+    branches: [master]
+    paths:
+      - '**'
+      - '!xntsrv/**'
+      - '!.github/**'
+      - '!TODO.md'
+      - 'xntsrv/build/**'
+      - '.github/workflows/server.yml'
 
 permissions:
   contents: read
@@ -41,6 +49,7 @@ jobs:
           Write-Output "winflexbison sha256: $hash"
           Expand-Archive $zip -DestinationPath C:\winflexbison
           choco install nasm jom gperf -y --no-progress
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) { choco install nsis -y --no-progress }
           # Unix tools the makefiles use (sed, awk, ...), after everything else
           # on PATH so that MSVC's link.exe is not shadowed.
           Add-Content $env:GITHUB_PATH 'C:\Program Files\NASM'
@@ -94,7 +103,13 @@ jobs:
           path: server-build.log
           if-no-files-found: ignore
 
+      - name: package
+        shell: cmd
+        run: xntsrv\build\build-server.cmd package
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: xntsrv-server-x64
-          path: xorg-server/obj64/servrelease/vcxsrv.exe
+          name: server-package
+          path: xorg-server/installer/vcxsrv-64.*.installer.exe
+          if-no-files-found: error
+          retention-days: 90

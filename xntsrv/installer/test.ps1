@@ -37,6 +37,21 @@ foreach ($pass in 'install', 'install over existing') {
 $line = & "$dir\xntsrv.exe" --dry-run --no-auth
 Check "launcher finds its server: $line" ($line -like "`"$dir\xntsrv-server.exe`" :0 *")
 
+# Start the server the way the Start menu shortcut does, and talk to it with
+# one of the X clients it ships: with the cookie, then without.
+& "$dir\xntsrv.exe"
+Start-Sleep -Seconds 10
+Check 'server is running' ($null -ne (Get-Process xntsrv-server -ErrorAction SilentlyContinue))
+$env:XAUTHORITY = Join-Path $env:LOCALAPPDATA 'XNTsrv\Xauthority'
+$info = & "$dir\xwininfo.exe" -root -display 127.0.0.1:0 2>&1 | Out-String
+Check 'an X client can query the server' ($info -match 'Width: \d+')
+$env:XAUTHORITY = Join-Path $env:TEMP 'no-such-cookie'
+$info = & "$dir\xwininfo.exe" -root -display 127.0.0.1:0 2>&1 | Out-String
+Check 'a client without the cookie is refused' ($info -notmatch 'Width: \d+')
+Stop-Process -Name xntsrv-server -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 2
+if (Test-Path "$env:TEMP\VCXSrv.0.log") { Get-Content "$env:TEMP\VCXSrv.0.log" -Tail 15 }
+
 # _?= makes the uninstaller run in place and wait, so its own file stays behind.
 Check 'uninstall exits 0' ((Run "$dir\uninstall.exe" @('/S', "_?=$dir")) -eq 0)
 Check 'service removed' ($null -eq (ServiceState))

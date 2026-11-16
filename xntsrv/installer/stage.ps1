@@ -1,14 +1,18 @@
 # Assembles the folder the installer packages.
 #
-# Until XNTsrv builds its own server, the X server is the upstream VcXsrv
-# release, downloaded at a pinned version, verified, extracted, and with
-# vcxsrv.exe renamed to xntsrv-server.exe.  Nothing else in it is changed.
+# The X server comes as an installer made by upstream's own NSIS script:
+# either one built from this repository by the server workflow
+# (-ServerPackage), or, when there is none, the upstream VcXsrv release,
+# downloaded at a pinned version and verified.  Either way it is extracted and
+# vcxsrv.exe is renamed to xntsrv-server.exe.
 #
 # SPDX-License-Identifier: MIT
 param(
     [Parameter(Mandatory)] [string] $BinDir,   # folder with the built XNTsrv .exe files
     [Parameter(Mandatory)] [string] $Bridge,   # the built Linux xntsrv-bridge binary
-    [Parameter(Mandatory)] [string] $OutDir    # folder to create
+    [Parameter(Mandatory)] [string] $OutDir,   # folder to create
+    [string] $ServerPackage = '',              # installer built by the server workflow
+    [string] $ServerCommit = ''                # the commit that installer was built from
 )
 $ErrorActionPreference = 'Stop'
 
@@ -20,11 +24,28 @@ if (Test-Path $OutDir) { Remove-Item -Recurse -Force $OutDir }
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 $OutDir = (Resolve-Path $OutDir).Path
 
-$download = Join-Path ([IO.Path]::GetTempPath()) "vcxsrv-$UpstreamVersion.installer.exe"
-Invoke-WebRequest -Uri $UpstreamUrl -OutFile $download
-$actual = (Get-FileHash -Algorithm SHA256 $download).Hash.ToLower()
-if ($actual -ne $UpstreamSha256) {
-    throw "Upstream installer checksum mismatch: got $actual, expected $UpstreamSha256"
+if ($ServerPackage) {
+    $download = (Resolve-Path $ServerPackage).Path
+    $origin = @"
+xntsrv-server.exe and the files installed alongside it were built from the
+VcXsrv source tree in the repository above, at commit $ServerCommit.
+"@
+    Write-Output "Server: built from source ($ServerCommit)"
+} else {
+    $download = Join-Path ([IO.Path]::GetTempPath()) "vcxsrv-$UpstreamVersion.installer.exe"
+    Invoke-WebRequest -Uri $UpstreamUrl -OutFile $download
+    $actual = (Get-FileHash -Algorithm SHA256 $download).Hash.ToLower()
+    if ($actual -ne $UpstreamSha256) {
+        throw "Upstream installer checksum mismatch: got $actual, expected $UpstreamSha256"
+    }
+    $origin = @"
+xntsrv-server.exe and the files installed alongside it are the unmodified
+VcXsrv $UpstreamVersion release, with vcxsrv.exe renamed:
+  $UpstreamUrl
+Its source code for this release is at:
+  https://github.com/marchaesen/vcxsrv/tree/$UpstreamVersion
+"@
+    Write-Output "Server: upstream release $UpstreamVersion"
 }
 
 & 7z x -y "-o$OutDir" $download | Out-Null
@@ -48,12 +69,9 @@ Copy-Item $Bridge (Join-Path $OutDir 'guest\xntsrv-bridge')
 XNTsrv
 https://github.com/dimmskii/xntsrv
 
-xntsrv-server.exe and the files installed alongside it are the unmodified
-VcXsrv $UpstreamVersion release, with vcxsrv.exe renamed:
-  $UpstreamUrl
+$origin
 VcXsrv is licensed under the GNU GPL version 3 and the X11/MIT family of
-licences. Its source code for this release is at:
-  https://github.com/marchaesen/vcxsrv/tree/$UpstreamVersion
+licences.
 
 The xntsrv*.exe programs and guest\xntsrv-bridge are part of XNTsrv and are
 MIT licensed. Their source code is in the repository above.

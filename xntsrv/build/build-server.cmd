@@ -4,7 +4,7 @@ rem as upstream's buildall.sh but driven from cmd instead of WSL or Cygwin.
 rem
 rem   build-server.cmd <stage> [jobs]
 rem
-rem Stages, in order: freetype openssl pthreads mhmake server
+rem Stages, in order: freetype openssl pthreads mhmake server package
 rem Run from the repository root.  Expects the tools upstream's makefiles call
 rem by fixed path: c:\winflexbison and c:\Python39.
 rem
@@ -32,7 +32,8 @@ if "%STAGE%"=="openssl" goto openssl
 if "%STAGE%"=="pthreads" goto pthreads
 if "%STAGE%"=="mhmake" goto mhmake
 if "%STAGE%"=="server" goto server
-echo usage: build-server.cmd freetype^|openssl^|pthreads^|mhmake^|server [jobs]
+if "%STAGE%"=="package" goto package
+echo usage: build-server.cmd freetype^|openssl^|pthreads^|mhmake^|server^|package [jobs]
 exit /b 2
 
 :freetype
@@ -60,4 +61,16 @@ exit /b %ERRORLEVEL%
 
 :server
 mhmake.exe -P%JOBS% -C xorg-server MAKESERVER=1
+exit /b %ERRORLEVEL%
+
+:package
+rem What upstream's packageall.sh does for the 64-bit release build: add the
+rem Visual C++ runtime and run upstream's own installer script.  The result is
+rem upstream's installer, which XNTsrv's installer then repackages.
+cd xorg-server\installer
+for %%f in (msvcp140.dll vcruntime140.dll vcruntime140_1.dll) do (
+    copy /y "%VCToolsRedistDir%x64\Microsoft.VC143.CRT\%%f" . >nul || exit /b 1
+)
+del /q vcxsrv-64.*.installer*.exe 2>nul
+"%ProgramFiles(x86)%\NSIS\makensis.exe" /V2 vcxsrv-64.nsi
 exit /b %ERRORLEVEL%

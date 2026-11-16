@@ -1,6 +1,7 @@
 name: windows
 
 on:
+  workflow_dispatch:
   push:
     branches: [master]
     paths: ['xntsrv/**', '.github/workflows/windows.yml']
@@ -9,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  actions: read   # to fetch the server package built by the server workflow
 
 jobs:
   # The installer carries the Linux-side forwarder, so build it first.
@@ -63,8 +65,31 @@ jobs:
           name: bridge
           path: build/bridge
 
+      # The X server is built by the slower server workflow; take its package
+      # from that workflow's latest successful run.  Without one, stage.ps1
+      # falls back to the upstream release.
+      - name: Fetch the server package
+        id: server
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $run = gh run list --repo $env:GITHUB_REPOSITORY --workflow server --branch master --status success --limit 1 --json databaseId,headSha | ConvertFrom-Json
+          if ($run) {
+            gh run download $run[0].databaseId --repo $env:GITHUB_REPOSITORY -n server-package -D build/server-package
+            $package = Get-ChildItem build/server-package/*.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          }
+          if ($package) {
+            "package=$($package.FullName)" >> $env:GITHUB_OUTPUT
+            "commit=$($run[0].headSha)" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Output "::warning::No server package from the server workflow; using the upstream VcXsrv release"
+          }
+          exit 0
+
       - name: Stage installer contents
-        run: xntsrv/installer/stage.ps1 -BinDir build/bin/Release -Bridge build/bridge/xntsrv-bridge -OutDir build/stage
+        run: >
+          xntsrv/installer/stage.ps1 -BinDir build/bin/Release -Bridge build/bridge/xntsrv-bridge -OutDir build/stage
+          -ServerPackage "${{ steps.server.outputs.package }}" -ServerCommit "${{ steps.server.outputs.commit }}"
 
       - name: Build installer
         run: |
