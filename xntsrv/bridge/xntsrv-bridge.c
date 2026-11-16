@@ -1,7 +1,7 @@
 /*
- * xntsrv-bridge - guest-side socket forwarder for XNTSrv.
+ * xntsrv-bridge - guest-side socket forwarder for XNTsrv.
  *
- * X clients only speak Unix sockets and TCP.  XNTSrv listens on the
+ * X clients only speak Unix sockets and TCP.  XNTsrv listens on the
  * hypervisor socket (Hyper-V sockets for WSL2, VMCI for VMware), which a
  * Linux guest reaches as AF_VSOCK.  This program listens on one or more
  * Unix sockets inside the guest and forwards each connection to the host.
@@ -41,7 +41,7 @@ static void usage(FILE *out)
 {
     fprintf(out,
         "Usage: %s [OPTION]... [LISTEN=TARGET]...\n"
-        "Forward Unix socket connections in this guest to the XNTSrv host.\n\n"
+        "Forward Unix socket connections in this guest to the XNTsrv host.\n\n"
         "  LISTEN   path of the Unix socket to create\n"
         "  TARGET   vsock:CID:PORT | unix:PATH | tcp:HOST:PORT\n\n"
         "Options:\n"

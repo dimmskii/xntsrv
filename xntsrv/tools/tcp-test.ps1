@@ -1,4 +1,4 @@
-# Checks whether the XNTSrv TCP service is relaying network connections to
+# Checks whether the XNTsrv TCP service is relaying network connections to
 # 127.0.0.1:6000.
 #
 # A stand-in for the X server holds port 6000 on every address with address

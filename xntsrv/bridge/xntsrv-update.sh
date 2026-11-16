@@ -1,5 +1,5 @@
 #!/bin/sh
-# Updates the XNTSrv bridge by removing it and installing the current version.
+# Updates the XNTsrv bridge by removing it and installing the current version.
 #
 #   curl -fsSL https://raw.githubusercontent.com/dimmskii/xntsrv/master/xntsrv/bridge/xntsrv-update.sh | sudo sh
 #

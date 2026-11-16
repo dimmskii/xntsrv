@@ -30,7 +30,7 @@ expect(0 "srv.exe :2 -listen tcp "                  ${BASE} --display 2 --mode d
 expect(0 " -ac -noclipboard -nowgl -notrayicon -dpi 144\n$" ${BASE} --no-clipboard --no-gl --no-tray --dpi=144)
 expect(0 " -wgl -logverbose 3 \"a b\"\n$"           ${BASE} -- -logverbose 3 "a b")
 expect(0 "^\"C:\\\\Program Files\\\\X\\\\s.exe\" :0 " --dry-run --no-auth "--server=C:\\Program Files\\X\\s.exe")
-expect(0 " -auth [^\n]*XNTSrv\\\\Xauthority -clipboard" --dry-run --server=${S})
+expect(0 " -auth [^\n]*XNTsrv\\\\Xauthority -clipboard" --dry-run --server=${S})
 expect(0 "srv.exe :0 "                              -n --no-auth --server ${S})
 
 # Errors and informational options.

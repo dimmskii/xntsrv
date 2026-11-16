@@ -1,12 +1,12 @@
 # Assembles the folder the installer packages.
 #
-# Until XNTSrv builds its own server, the X server is the upstream VcXsrv
+# Until XNTsrv builds its own server, the X server is the upstream VcXsrv
 # release, downloaded at a pinned version, verified, extracted, and with
 # vcxsrv.exe renamed to xntsrv-server.exe.  Nothing else in it is changed.
 #
 # SPDX-License-Identifier: MIT
 param(
-    [Parameter(Mandatory)] [string] $BinDir,   # folder with the built XNTSrv .exe files
+    [Parameter(Mandatory)] [string] $BinDir,   # folder with the built XNTsrv .exe files
     [Parameter(Mandatory)] [string] $Bridge,   # the built Linux xntsrv-bridge binary
     [Parameter(Mandatory)] [string] $OutDir    # folder to create
 )
@@ -45,7 +45,7 @@ New-Item -ItemType Directory -Force (Join-Path $OutDir 'guest') | Out-Null
 Copy-Item $Bridge (Join-Path $OutDir 'guest\xntsrv-bridge')
 
 @"
-XNTSrv
+XNTsrv
 https://github.com/dimmskii/xntsrv
 
 xntsrv-server.exe and the files installed alongside it are the unmodified
@@ -55,7 +55,7 @@ VcXsrv is licensed under the GNU GPL version 3 and the X11/MIT family of
 licences. Its source code for this release is at:
   https://github.com/marchaesen/vcxsrv/tree/$UpstreamVersion
 
-The xntsrv*.exe programs and guest\xntsrv-bridge are part of XNTSrv and are
+The xntsrv*.exe programs and guest\xntsrv-bridge are part of XNTsrv and are
 MIT licensed. Their source code is in the repository above.
 "@ | Set-Content -Encoding utf8 (Join-Path $OutDir 'NOTICE.txt')
 

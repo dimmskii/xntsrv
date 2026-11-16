@@ -1,8 +1,8 @@
 /*
- * xntsrv-reset - remove everything XNTSrv set up on this computer.
+ * xntsrv-reset - remove everything XNTsrv set up on this computer.
  *
  * Does what xntsrv-unregister does (removes the service and the machine-wide
- * registry entries) and then deletes every user's XNTSrv data folder.  It does
+ * registry entries) and then deletes every user's XNTsrv data folder.  It does
  * not delete the program files themselves.
  *
  * SPDX-License-Identifier: MIT
@@ -20,7 +20,7 @@ static void Err(const wstring &text) { xnt::ConsoleWrite(STD_ERROR_HANDLE, L"xnt
 
 static const wchar_t kHelp[] =
     L"Usage: xntsrv-reset [OPTION]\n"
-    L"Uninstall the XNTSrv service and delete XNTSrv settings for all users and the\n"
+    L"Uninstall the XNTsrv service and delete XNTsrv settings for all users and the\n"
     L"system.  Needs an administrator prompt.  Program files are left in place.\n"
     L"\n"
     L"  -y, --yes       do not ask for confirmation\n"
@@ -55,7 +55,7 @@ static bool RemoveTree(const wstring &dir)
     return RemoveDirectoryW(dir.c_str()) && ok;
 }
 
-/* Delete the XNTSrv data folder from every user profile on the machine. */
+/* Delete the XNTsrv data folder from every user profile on the machine. */
 static bool RemoveUserData()
 {
     const wchar_t profiles[] = L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList";
@@ -129,7 +129,7 @@ int wmain(int argc, wchar_t **argv)
         wchar_t answer[16] = L"";
 
         xnt::ConsoleWrite(STD_OUTPUT_HANDLE,
-                          L"This will completely uninstall the XNTSrv services and delete XNTSrv\n"
+                          L"This will completely uninstall the XNTsrv services and delete XNTsrv\n"
                           L"settings for all users and the system.\n"
                           L"Continue? [y/N] ");
         if (!fgetws(answer, ARRAYSIZE(answer), stdin) || (answer[0] != L'y' && answer[0] != L'Y')) {
@@ -141,6 +141,6 @@ int wmain(int argc, wchar_t **argv)
     bool ok = RemoveMachineSetup();
     ok = RemoveUserData() && ok;
 
-    Out(ok ? L"Done. XNTSrv program files were left in place." : L"Finished with errors.");
+    Out(ok ? L"Done. XNTsrv program files were left in place." : L"Finished with errors.");
     return ok ? 0 : 1;
 }

@@ -1,13 +1,13 @@
 /*
- * The Windows Firewall rules XNTSrv needs.
+ * The Windows Firewall rules XNTsrv needs.
  *
  * Server rule: the X server needs TCP for its own window manager and for the
- * XNTSrv services, all of which use 127.0.0.1.  Until XNTSrv builds a server
+ * XNTsrv services, all of which use 127.0.0.1.  Until XNTsrv builds a server
  * that binds to loopback only, the stock one opens its port on every
  * interface, so inbound connections to it are blocked.  Loopback traffic is
  * not subject to the firewall and keeps working.
  *
- * TCP service rule: lets the XNTSrv TCP service, when someone starts it,
+ * TCP service rule: lets the XNTsrv TCP service, when someone starts it,
  * accept X connections from directly attached networks only.
  *
  * SPDX-License-Identifier: MIT
@@ -26,15 +26,15 @@ struct FirewallRule {
 };
 
 static const FirewallRule kFirewallRules[] = {
-    { L"XNTSrv server (block inbound)", L"xntsrv-server.exe", false,
-      L"Keeps the XNTSrv X server reachable from this computer only. "
-      L"Connections from WSL and other machines go through the XNTSrv services." },
-    { L"XNTSrv TCP service (local subnet)", L"xntsrv-service.exe", true,
-      L"Lets the XNTSrv TCP service accept X connections from directly attached networks. "
+    { L"XNTsrv server (block inbound)", L"xntsrv-server.exe", false,
+      L"Keeps the XNTsrv X server reachable from this computer only. "
+      L"Connections from WSL and other machines go through the XNTsrv services." },
+    { L"XNTsrv TCP service (local subnet)", L"xntsrv-service.exe", true,
+      L"Lets the XNTsrv TCP service accept X connections from directly attached networks. "
       L"It has no effect unless that service is started." },
 };
 
-/* Remove every XNTSrv rule, then add them again for the programs in `dir`
+/* Remove every XNTsrv rule, then add them again for the programs in `dir`
  * unless that is empty. */
 static inline HRESULT SetFirewallRules(const std::wstring &dir)
 {

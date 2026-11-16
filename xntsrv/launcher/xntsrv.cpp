@@ -1,5 +1,5 @@
 /*
- * xntsrv - launcher for the XNTSrv X server.
+ * xntsrv - launcher for the XNTsrv X server.
  *
  * Translates a conventional command line into the server's own options,
  * prepares X authentication, and starts xntsrv-server.exe.
@@ -21,7 +21,7 @@ using std::wstring;
 
 static const wchar_t kHelp[] =
     L"Usage: xntsrv [OPTION]... [-- SERVER-ARGS...]\n"
-    L"Start the XNTSrv X server.\n"
+    L"Start the XNTsrv X server.\n"
     L"\n"
     L"  -d, --display=N         display number (default 0)\n"
     L"  -m, --mode=MODE         multiwindow (default) | desktop | fullscreen\n"
@@ -39,7 +39,7 @@ static const wchar_t kHelp[] =
     L"Anything after -- is passed to the server unchanged.\n"
     L"\n"
     L"The server listens on this computer only (TCP on 127.0.0.1). Connections from\n"
-    L"WSL and other virtual machines are carried to it by the XNTSrv services.\n";
+    L"WSL and other virtual machines are carried to it by the XNTsrv services.\n";
 
 struct Options {
     unsigned display = 0;
@@ -81,7 +81,7 @@ static void Write(DWORD which, const wstring &text)
 
     if (!h) {
         if (which == STD_ERROR_HANDLE)
-            MessageBoxW(NULL, text.c_str(), L"XNTSrv", MB_OK | MB_ICONERROR);
+            MessageBoxW(NULL, text.c_str(), L"XNTsrv", MB_OK | MB_ICONERROR);
         return;
     }
     if (GetConsoleMode(h, &mode)) {
@@ -315,7 +315,7 @@ static wstring AuthFilePath()
     wstring path;
 
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, NULL, &base)))
-        path = wstring(base) + L"\\XNTSrv\\Xauthority";
+        path = wstring(base) + L"\\XNTsrv\\Xauthority";
     CoTaskMemFree(base);
     return path;
 }
@@ -372,7 +372,7 @@ static std::vector<wstring> BuildServerArgs(const Options &o, const wstring &aut
         a.push_back(L"-fullscreen");
 
     /* TCP is how the server's own window manager and clipboard reach it, and
-     * how the XNTSrv services hand it connections; nothing else is opened. */
+     * how the XNTsrv services hand it connections; nothing else is opened. */
     a.push_back(L"-listen");
     a.push_back(L"tcp");
     a.push_back(L"-nolisten");

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs the XNTSrv bridge inside a WSL distribution.
+# Installs the XNTsrv bridge inside a WSL distribution.
 #
 #   curl -fsSL https://raw.githubusercontent.com/dimmskii/xntsrv/master/xntsrv/bridge/xntsrv-install.sh | sudo sh
 #
@@ -23,7 +23,7 @@ BIN=/usr/local/bin/xntsrv-bridge
 UNIT=/etc/systemd/system/xntsrv-bridge.service
 PROFILE=/etc/profile.d/xntsrv.sh
 # The Windows installer ships a ready-made static binary.
-WINDOWS_COPY="/mnt/c/Program Files/XNTSrv/guest/xntsrv-bridge"
+WINDOWS_COPY="/mnt/c/Program Files/XNTsrv/guest/xntsrv-bridge"
 SOCKET=/tmp/.X11-unix/X0
 
 say() { printf 'xntsrv-install: %s\n' "$*"; }
@@ -113,7 +113,7 @@ stop_existing() {
 install_service() {
     cat >"$UNIT" <<EOF
 [Unit]
-Description=XNTSrv bridge (X11 socket to the XNTSrv X server on Windows)
+Description=XNTsrv bridge (X11 socket to the XNTsrv X server on Windows)
 Documentation=https://github.com/dimmskii/xntsrv
 
 [Service]
@@ -152,14 +152,14 @@ windows_cookie() {
         *) return 0 ;;
     esac
     dir=$(wslpath -u "$dir" 2>/dev/null) || return 0
-    printf '%s/XNTSrv/Xauthority' "$dir"
+    printf '%s/XNTsrv/Xauthority' "$dir"
 }
 
 install_profile() {
     cookie=$(windows_cookie)
     mkdir -p "$(dirname "$PROFILE")"
     {
-        echo '# XNTSrv: send X11 programs to the XNTSrv X server on Windows.'
+        echo '# XNTsrv: send X11 programs to the XNTsrv X server on Windows.'
         echo '# Written by xntsrv-install.sh; removed by xntsrv-uninstall.sh.'
         echo '[ -n "${DISPLAY:-}" ] || export DISPLAY=:0'
         echo 'if [ -z "${XAUTHORITY:-}" ]; then'
@@ -167,7 +167,7 @@ install_profile() {
             echo "    export XAUTHORITY=$(quote "$cookie")"
         else
             # Not known at install time: take the first cookie found at login.
-            echo '    for _xntsrv in /mnt/c/Users/*/AppData/Local/XNTSrv/Xauthority; do'
+            echo '    for _xntsrv in /mnt/c/Users/*/AppData/Local/XNTsrv/Xauthority; do'
             echo '        [ -r "$_xntsrv" ] && export XAUTHORITY="$_xntsrv" && break'
             echo '    done'
             echo '    unset _xntsrv'
@@ -209,7 +209,7 @@ main() {
     else
         say "no systemd here: the bridge starts with your next login shell (log: ~/.cache/xntsrv-bridge.log)"
     fi
-    say "done. Start XNTSrv on Windows, open a new terminal, and run a graphical program."
+    say "done. Start XNTsrv on Windows, open a new terminal, and run a graphical program."
 }
 
 main "$@"

@@ -1,10 +1,10 @@
 /*
- * xntsrv-register - machine-wide setup for XNTSrv.
+ * xntsrv-register - machine-wide setup for XNTsrv.
  *
- * Run from an administrator prompt in the folder that holds the XNTSrv
+ * Run from an administrator prompt in the folder that holds the XNTsrv
  * programs.  It records the install location, registers the Hyper-V socket
  * service ID and the App Paths entry, blocks inbound network connections to
- * the server, and installs and starts the XNTSrv services.  Running it again
+ * the server, and installs and starts the XNTsrv services.  Running it again
  * repairs an existing setup.  xntsrv-unregister undoes it.
  *
  * SPDX-License-Identifier: MIT
@@ -20,7 +20,7 @@ static void Err(const wstring &text) { xnt::ConsoleWrite(STD_ERROR_HANDLE, L"xnt
 
 static const wchar_t kHelp[] =
     L"Usage: xntsrv-register [OPTION]\n"
-    L"Set XNTSrv up for all users of this computer.  Needs an administrator prompt.\n"
+    L"Set XNTsrv up for all users of this computer.  Needs an administrator prompt.\n"
     L"\n"
     L"  -h, --help      show this help\n"
     L"  -V, --version   show the version\n"
@@ -135,7 +135,7 @@ int wmain(int argc, wchar_t **argv)
     else
         ok = false;
 
-    if (SetString(xnt::kHvSocketKey, L"ElementName", L"XNTSrv"))
+    if (SetString(xnt::kHvSocketKey, L"ElementName", L"XNTsrv"))
         Out(L"Hyper-V socket ID:     registered (port 106000)");
     else
         ok = false;

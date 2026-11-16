@@ -1,4 +1,4 @@
-# Builds the XNTSrv Windows programs.  The Linux-side bridge has its own
+# Builds the XNTsrv Windows programs.  The Linux-side bridge has its own
 # Makefile in bridge/.
 cmake_minimum_required(VERSION 3.20)
 project(xntsrv LANGUAGES CXX)

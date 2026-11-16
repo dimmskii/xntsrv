@@ -1,7 +1,7 @@
 /*
  * xntsrv-unregister - undo xntsrv-register.
  *
- * Stops and removes the XNTSrv service and deletes the machine-wide registry
+ * Stops and removes the XNTsrv service and deletes the machine-wide registry
  * entries.  User settings and program files are left alone; xntsrv-reset
  * removes the settings as well.
  *
@@ -18,7 +18,7 @@ static void Err(const wstring &text) { xnt::ConsoleWrite(STD_ERROR_HANDLE, L"xnt
 
 static const wchar_t kHelp[] =
     L"Usage: xntsrv-unregister [OPTION]\n"
-    L"Remove the XNTSrv service and its machine-wide registration.  Needs an\n"
+    L"Remove the XNTsrv service and its machine-wide registration.  Needs an\n"
     L"administrator prompt.  User settings and program files are kept.\n"
     L"\n"
     L"  -h, --help      show this help\n"

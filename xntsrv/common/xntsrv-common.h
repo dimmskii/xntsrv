@@ -1,5 +1,5 @@
 /*
- * Shared by the XNTSrv Windows programs: names, registry locations, and the
+ * Shared by the XNTsrv Windows programs: names, registry locations, and the
  * WSL virtual machine lookup.
  *
  * SPDX-License-Identifier: MIT
@@ -33,20 +33,20 @@ struct ServiceInfo {
     const wchar_t *description;
 };
 const ServiceInfo kServices[] = {
-    { L"XNTSrvWSL", L"wsl", L"XNTSrv WSL", true,
-      L"Carries connections from WSL to the XNTSrv X server over the Hyper-V socket. "
+    { L"XNTsrvWSL", L"wsl", L"XNTsrv WSL", true,
+      L"Carries connections from WSL to the XNTsrv X server over the Hyper-V socket. "
       L"Stop it to cut WSL off from the X server." },
-    { L"XNTSrvTCP", L"tcp", L"XNTSrv TCP", false,
-      L"Carries connections from the network to the XNTSrv X server. Not started unless you start it. "
+    { L"XNTsrvTCP", L"tcp", L"XNTsrv TCP", false,
+      L"Carries connections from the network to the XNTsrv X server. Not started unless you start it. "
       L"Listens on every network address of this computer, or only on the addresses and adapter names "
-      L"listed in HKLM\\SOFTWARE\\XNTSrv\\TCP, value Listen." },
-    { L"XNTSrvVMware", L"vmware", L"XNTSrv VMware", false,
-      L"Placeholder, not implemented yet. Will carry connections from VMware guests to the XNTSrv X server." },
-    { L"XNTSrvSession", L"session", L"XNTSrv Session", false,
-      L"Placeholder, not implemented yet. Will start an XNTSrv X server in the background for each user who logs in." },
+      L"listed in HKLM\\SOFTWARE\\XNTsrv\\TCP, value Listen." },
+    { L"XNTsrvVMware", L"vmware", L"XNTsrv VMware", false,
+      L"Placeholder, not implemented yet. Will carry connections from VMware guests to the XNTsrv X server." },
+    { L"XNTsrvSession", L"session", L"XNTsrv Session", false,
+      L"Placeholder, not implemented yet. Will start an XNTsrv X server in the background for each user who logs in." },
 };
 /* Services earlier versions installed; removed on register and unregister. */
-const wchar_t *const kRetiredServices[] = { L"XNTSrv" };
+const wchar_t *const kRetiredServices[] = { L"XNTsrv" };
 
 /* Port the Linux bridge connects to; kHvSocketKey below is this port's ID. */
 const unsigned kVsockPort = 106000;
@@ -54,9 +54,9 @@ const unsigned kVsockPort = 106000;
 const unsigned kXBasePort = 6000;
 
 /* Machine-wide registry entries, all under HKEY_LOCAL_MACHINE. */
-const wchar_t kInstallKey[] = L"SOFTWARE\\XNTSrv";
-/* Settings of the XNTSrv TCP service. */
-const wchar_t kTcpKey[] = L"SOFTWARE\\XNTSrv\\TCP";
+const wchar_t kInstallKey[] = L"SOFTWARE\\XNTsrv";
+/* Settings of the XNTsrv TCP service. */
+const wchar_t kTcpKey[] = L"SOFTWARE\\XNTsrv\\TCP";
 const wchar_t kAppPathsKey[] = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\xntsrv.exe";
 /* Hyper-V socket service ID for the default vsock port, 106000 (0x19E10).
  * Windows only delivers guest connections to registered service IDs. */
@@ -66,7 +66,7 @@ const wchar_t kHvSocketKey[] =
 
 /* Per-user data lives in files, not in the registry, so that it can be found
  * and removed for users who are not logged in. */
-const wchar_t kUserDataDir[] = L"XNTSrv";
+const wchar_t kUserDataDir[] = L"XNTsrv";
 
 inline std::wstring Hex(DWORD value)
 {

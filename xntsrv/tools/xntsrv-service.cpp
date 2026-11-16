@@ -1,5 +1,5 @@
 /*
- * xntsrv-service - carries connections to the XNTSrv X server.
+ * xntsrv-service - carries connections to the XNTsrv X server.
  *
  * The X server itself only listens on 127.0.0.1.  Each way of reaching it from
  * outside is a separate Windows service running this program in a different
@@ -13,7 +13,7 @@
  *            a service.  It follows WSL restarts by listening on the new VM.
  *   tcp      Listens on this computer's network addresses (never loopback) and
  *            follows them as adapters come and go.  Limited to the addresses
- *            or adapter names in HKLM\SOFTWARE\XNTSrv\TCP\Listen when set.
+ *            or adapter names in HKLM\SOFTWARE\XNTsrv\TCP\Listen when set.
  *   vmware   Placeholder: will listen on the VMware VMCI socket.
  *   session  Placeholder: will start an X server for each user who logs in.
  *

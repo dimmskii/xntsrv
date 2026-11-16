@@ -1,4 +1,4 @@
-; XNTSrv installer.
+; XNTsrv installer.
 ;
 ; Copies a staged folder (see stage.ps1) to Program Files and hands the
 ; machine-wide setup to xntsrv-register; the uninstaller calls
@@ -22,14 +22,14 @@ Unicode true
 !endif
 
 !define PUBLISHER "Topmediavision Inc."
-!define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\XNTSrv"
+!define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\XNTsrv"
 ; Upstream's own icon and licence text, used as they are.
 !define ICON "..\..\xorg-server\hw\xwin\X.ico"
 !define LICENCE "..\..\COPYING"
 
-Name "XNTSrv"
+Name "XNTsrv"
 OutFile "${OUTFILE}"
-InstallDir "$PROGRAMFILES64\XNTSrv"
+InstallDir "$PROGRAMFILES64\XNTsrv"
 RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 XPStyle on
@@ -38,8 +38,8 @@ UninstallIcon "${ICON}"
 LicenseData "${LICENCE}"
 
 VIProductVersion "${VERSION}.0"
-VIAddVersionKey "ProductName" "XNTSrv"
-VIAddVersionKey "FileDescription" "XNTSrv Setup"
+VIAddVersionKey "ProductName" "XNTsrv"
+VIAddVersionKey "FileDescription" "XNTsrv Setup"
 VIAddVersionKey "FileVersion" "${VERSION}"
 VIAddVersionKey "ProductVersion" "${VERSION}"
 VIAddVersionKey "CompanyName" "${PUBLISHER}"
@@ -55,13 +55,13 @@ UninstPage instfiles
 Function .onInit
   ; Upgrade in place: reuse the folder a previous install registered.
   SetRegView 64
-  ReadRegStr $0 HKLM "SOFTWARE\XNTSrv" "InstallDir"
+  ReadRegStr $0 HKLM "SOFTWARE\XNTsrv" "InstallDir"
   ${If} $0 != ""
     StrCpy $INSTDIR $0
   ${EndIf}
 FunctionEnd
 
-Section "XNTSrv"
+Section "XNTsrv"
   SetRegView 64
   SetShellVarContext all
 
@@ -78,12 +78,12 @@ Section "XNTSrv"
   nsExec::ExecToLog '"$INSTDIR\xntsrv-register.exe"'
   Pop $0
   ${If} $0 != 0
-    MessageBox MB_OK|MB_ICONSTOP "Setting up XNTSrv failed (xntsrv-register exit code $0).$\nThe details are in the installer's log window." /SD IDOK
+    MessageBox MB_OK|MB_ICONSTOP "Setting up XNTsrv failed (xntsrv-register exit code $0).$\nThe details are in the installer's log window." /SD IDOK
     SetErrorLevel 1
     Abort
   ${EndIf}
 
-  WriteRegStr HKLM "${UNINSTKEY}" "DisplayName" "XNTSrv"
+  WriteRegStr HKLM "${UNINSTKEY}" "DisplayName" "XNTsrv"
   WriteRegStr HKLM "${UNINSTKEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKLM "${UNINSTKEY}" "Publisher" "${PUBLISHER}"
   WriteRegStr HKLM "${UNINSTKEY}" "URLInfoAbout" "https://github.com/dimmskii/xntsrv"
@@ -94,16 +94,16 @@ Section "XNTSrv"
   WriteRegDWORD HKLM "${UNINSTKEY}" "NoModify" 1
   WriteRegDWORD HKLM "${UNINSTKEY}" "NoRepair" 1
 
-  CreateShortCut "$SMPROGRAMS\XNTSrv.lnk" "$INSTDIR\xntsrvw.exe" "" "$INSTDIR\xntsrv-server.exe" 0
+  CreateShortCut "$SMPROGRAMS\XNTsrv.lnk" "$INSTDIR\xntsrvw.exe" "" "$INSTDIR\xntsrv-server.exe" 0
 SectionEnd
 
 Section "Uninstall"
   SetRegView 64
   SetShellVarContext all
 
-  ; Only ever remove a folder that really is an XNTSrv install.
+  ; Only ever remove a folder that really is an XNTsrv install.
   ${IfNot} ${FileExists} "$INSTDIR\xntsrv-unregister.exe"
-    MessageBox MB_OK|MB_ICONSTOP "$INSTDIR does not look like an XNTSrv installation; nothing was removed." /SD IDOK
+    MessageBox MB_OK|MB_ICONSTOP "$INSTDIR does not look like an XNTsrv installation; nothing was removed." /SD IDOK
     SetErrorLevel 1
     Abort
   ${EndIf}
@@ -112,7 +112,7 @@ Section "Uninstall"
   nsExec::ExecToLog '"$INSTDIR\xntsrv-unregister.exe"'
   Pop $0
 
-  Delete "$SMPROGRAMS\XNTSrv.lnk"
+  Delete "$SMPROGRAMS\XNTsrv.lnk"
   DeleteRegKey HKLM "${UNINSTKEY}"
   RMDir /r "$INSTDIR"
 SectionEnd
