@@ -87,6 +87,11 @@ static int Unit()
     Check("resources for: terminal font", merged.find("XTerm*faceName:\tConsolas:bold\n") != std::string::npos &&
                                               merged.find("XTerm*faceSize:\t12\n") != std::string::npos &&
                                               merged.find("URxvt*font:\txft:Consolas:bold:size=12\n") != std::string::npos);
+    a.terminalScrollback = 0;
+    Check("resources for: no history setting when Windows keeps none",
+          MergeResources("", ResourcesFor(a)).find("saveLines") == std::string::npos);
+    a.terminalScrollback = 8971;
+    merged = MergeResources("", ResourcesFor(a));
     Check("resources for: terminal size, history and cursor",
           merged.find("XTerm*geometry:\t120x30\n") != std::string::npos &&
               merged.find("UXTerm*saveLines:\t8971\n") != std::string::npos &&
