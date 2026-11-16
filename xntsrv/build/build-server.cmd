@@ -42,8 +42,11 @@ exit /b %ERRORLEVEL%
 :openssl
 if not exist openssl\release64 mkdir openssl\release64
 cd openssl\release64
-perl.exe ..\Configure VC-WIN64A --release || exit /b 1
-jom.exe /J%JOBS%
+rem OpenSSL's own tests are not needed, and compiling them in parallel
+rem sometimes fails on a locked debug-information file.  A second run picks up
+rem where a failed one stopped.
+perl.exe ..\Configure VC-WIN64A --release no-tests || exit /b 1
+jom.exe /J%JOBS% || jom.exe /J%JOBS%
 exit /b %ERRORLEVEL%
 
 :pthreads
