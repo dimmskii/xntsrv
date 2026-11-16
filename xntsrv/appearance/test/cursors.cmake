@@ -1,0 +1,12 @@
+# Runs the pointer scheme conversion and then the checker on its output.
+file(REMOVE_RECURSE ${OUT})
+execute_process(COMMAND ${EXE} --write-cursors=${OUT} RESULT_VARIABLE rc OUTPUT_VARIABLE out ERROR_VARIABLE err)
+message("${out}${err}")
+if(NOT rc EQUAL 0)
+  message(FATAL_ERROR "xntsrv-appearance --write-cursors failed (${rc})")
+endif()
+execute_process(COMMAND ${PYTHON} ${CHECK} ${OUT} RESULT_VARIABLE rc OUTPUT_VARIABLE out ERROR_VARIABLE err)
+message("${out}${err}")
+if(NOT rc EQUAL 0)
+  message(FATAL_ERROR "the cursor theme did not pass its checks")
+endif()

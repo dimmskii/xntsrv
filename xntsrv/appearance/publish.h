@@ -13,6 +13,7 @@ struct Appearance {
     int dpi = 96;          /* dots per inch X programs should assume */
     std::string font;      /* UI font as "Family Size", e.g. "Segoe UI 9"; may be empty */
     int cursorSize = 32;   /* in pixels */
+    std::string cursorTheme; /* name of the X cursor theme to use; empty for the guest's own */
     bool preferDark = false;
     /* Terminal colours: 16 values as 0xRRGGBB in the order terminals number
      * them (black, red, green, yellow, blue, magenta, cyan, white, then the
@@ -32,6 +33,7 @@ struct Appearance {
     bool operator==(const Appearance &o) const
     {
         return dpi == o.dpi && font == o.font && cursorSize == o.cursorSize && preferDark == o.preferDark &&
+               cursorTheme == o.cursorTheme &&
                palette == o.palette && foreground == o.foreground && background == o.background &&
                terminalFont == o.terminalFont && terminalBold == o.terminalBold &&
                terminalPoints == o.terminalPoints && terminalColumns == o.terminalColumns &&

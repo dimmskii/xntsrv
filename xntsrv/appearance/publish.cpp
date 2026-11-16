@@ -20,6 +20,8 @@ std::vector<std::pair<std::string, std::string>> ResourcesFor(const Appearance &
         { "Xft.dpi", std::to_string(a.dpi) },
         { "Xcursor.size", std::to_string(a.cursorSize) },
     };
+    if (!a.cursorTheme.empty())
+        r.push_back({ "Xcursor.theme", a.cursorTheme });
     if (a.palette.size() == 16) {
         /* Read by xterm and the terminals that follow its conventions. */
         for (int i = 0; i < 16; i++)
@@ -97,6 +99,8 @@ bool Publisher::Write(const Appearance &a)
     XSettings settings;
     settings.SetInt("Xft/DPI", a.dpi * 1024); /* in 1024ths of a dot per inch */
     settings.SetInt("Gtk/CursorThemeSize", a.cursorSize);
+    if (!a.cursorTheme.empty())
+        settings.SetString("Gtk/CursorThemeName", a.cursorTheme);
     settings.SetInt("Gtk/ApplicationPreferDarkTheme", a.preferDark ? 1 : 0);
     if (!a.font.empty())
         settings.SetString("Gtk/FontName", a.font);

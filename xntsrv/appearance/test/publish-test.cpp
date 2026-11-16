@@ -61,6 +61,8 @@ static int Unit()
     a.dpi = 144;
     a.cursorSize = 48;
     Check("resources for: no palette, two entries", ResourcesFor(a).size() == 2);
+    a.cursorTheme = "XNTsrv";
+    Check("resources for: cursor theme", MergeResources("", ResourcesFor(a)).find("Xcursor.theme:\tXNTsrv\n") != std::string::npos);
     for (uint32_t i = 0; i < 16; i++)
         a.palette.push_back(i * 0x111111);
     a.foreground = 15;

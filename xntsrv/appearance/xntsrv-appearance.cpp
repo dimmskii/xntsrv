@@ -11,6 +11,8 @@
  *
  *   xntsrv-appearance [--display=N]   run (what the launcher does)
  *   xntsrv-appearance --print         show what would be published, and exit
+ *   xntsrv-appearance --write-cursors=DIR
+ *                                     convert the pointer scheme into DIR, and exit
  *
  * SPDX-License-Identifier: MIT
  */
@@ -20,6 +22,7 @@
 #include <ws2tcpip.h>
 #include <shlobj.h>
 
+#include "cursors-win.h"
 #include "publish.h"
 
 using std::wstring;
@@ -35,7 +38,7 @@ static std::string Utf8(const wstring &text)
     return out;
 }
 
-static wstring Wide(const std::string &text)
+static wstring WideUtf8(const std::string &text)
 {
     int n = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), (int)text.size(), NULL, 0);
     wstring out((size_t)n, L'\0');
@@ -91,6 +94,14 @@ static DWORD RegistryNumber(const wchar_t *key, const wchar_t *name, DWORD fallb
 static Appearance ReadWindows(unsigned xWidth)
 {
     Appearance a;
+
+    /* The pointer scheme, converted afresh each time: it is quick, and it is
+     * the simplest way to follow a change of scheme or size. */
+    int files = 0;
+    wstring theme = CursorThemeDir();
+    if (!theme.empty() && WriteCursorTheme(theme, &files) > 0)
+        a.cursorTheme = kCursorThemeName;
+
     int dpi = PrimaryDpi();
 
     /* The X server may see the desktop in real pixels or in pixels Windows
@@ -252,9 +263,9 @@ static void Print(const Appearance &a)
     Out(L"dpi=" + std::to_wstring(a.dpi));
     Out(L"cursor=" + std::to_wstring(a.cursorSize));
     Out(L"dark=" + std::to_wstring(a.preferDark ? 1 : 0));
-    Out(L"font=" + Wide(a.font));
+    Out(L"font=" + WideUtf8(a.font));
     for (const auto &resource : ResourcesFor(a))
-        Out(Wide(resource.first + ": " + resource.second));
+        Out(WideUtf8(resource.first + ": " + resource.second));
 }
 
 int wmain(int argc, wchar_t **argv)
@@ -264,7 +275,13 @@ int wmain(int argc, wchar_t **argv)
 
     for (int i = 1; i < argc; i++) {
         wstring arg = argv[i];
-        if (arg == L"--print") {
+        if (arg.compare(0, 16, L"--write-cursors=") == 0 && arg.size() > 16) {
+            int files = 0;
+            BecomeDpiAware();
+            int pointers = WriteCursorTheme(arg.substr(16), &files);
+            Out(std::to_wstring(pointers) + L" pointers written as " + std::to_wstring(files) + L" files");
+            return pointers > 0 ? 0 : 1;
+        } else if (arg == L"--print") {
             print = true;
         } else if (arg.compare(0, 10, L"--display=") == 0 && arg.size() > 10) {
             display = (unsigned)_wtoi(arg.c_str() + 10);
@@ -297,7 +314,7 @@ int wmain(int argc, wchar_t **argv)
 
     XClient x;
     if (!x.Open(s, ReadCookie())) {
-        Err(Wide(x.Error()));
+        Err(WideUtf8(x.Error()));
         return 1;
     }
 
@@ -307,7 +324,7 @@ int wmain(int argc, wchar_t **argv)
     case Publisher::kOtherManager:
         return 0; /* the display has its own settings manager */
     case Publisher::kFailed:
-        Err(Wide(x.Error()));
+        Err(WideUtf8(x.Error()));
         return 1;
     default:
         break;
