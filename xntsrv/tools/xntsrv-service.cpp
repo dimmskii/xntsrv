@@ -14,7 +14,9 @@
  *   tcp      Listens on this computer's network addresses (never loopback) and
  *            follows them as adapters come and go.  Limited to the addresses
  *            or adapter names in HKLM\SOFTWARE\XNTsrv\TCP\Listen when set.
- *   vmware   Placeholder: will listen on the VMware VMCI socket.
+ *   vmware   Listens on the VMware (VMCI) socket, which Linux guests under
+ *            VMware Workstation or Player reach as the same vsock address the
+ *            WSL bridge uses.  Idle when VMware is not installed.
  *   session  Placeholder: will start an X server for each user who logs in.
  *
  * Installed and removed by xntsrv-register and xntsrv-unregister.
@@ -203,6 +205,80 @@ static void ServeWsl()
         closesocket(listener);
 }
 
+/* ---- vmware mode ------------------------------------------------------- */
+
+/* VMware's socket family has no fixed number: its driver, installed with
+ * Workstation or Player, hands it out through a device.  Returns -1 when the
+ * driver is not there.  The device name, control code and address layout are
+ * VMware's published interface (vmci_sockets.h). */
+static int VmciAddressFamily()
+{
+    const DWORD kGetAfValue = 0x81032068;
+    unsigned value = (unsigned)-1;
+    HANDLE device = CreateFileW(L"\\\\.\\VMCI", GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+
+    if (device == INVALID_HANDLE_VALUE)
+        return -1;
+    OVERLAPPED ov = {};
+    DWORD n = 0;
+    ov.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (!DeviceIoControl(device, kGetAfValue, &value, sizeof value, &value, sizeof value, &n, &ov) &&
+        (GetLastError() != ERROR_IO_PENDING || !GetOverlappedResult(device, &ov, &n, TRUE)))
+        value = (unsigned)-1;
+    if (ov.hEvent)
+        CloseHandle(ov.hEvent);
+    CloseHandle(device);
+    return (int)value;
+}
+
+struct SockaddrVm {
+    unsigned short family;
+    unsigned short reserved;
+    unsigned int port;
+    unsigned int cid;
+    unsigned char zero[4];
+};
+
+static SOCKET ListenOnVmci()
+{
+    int family = VmciAddressFamily();
+    if (family < 0)
+        return INVALID_SOCKET;
+
+    SockaddrVm addr = {};
+    addr.family = (unsigned short)family;
+    addr.port = xnt::kVsockPort;
+    addr.cid = (unsigned int)-1; /* any: guests address the host as CID 2 */
+
+    SOCKET s = socket(family, SOCK_STREAM, 0);
+    if (s == INVALID_SOCKET)
+        return s;
+    if (bind(s, (sockaddr *)&addr, sizeof addr) != 0 || listen(s, SOMAXCONN) != 0) {
+        closesocket(s);
+        return INVALID_SOCKET;
+    }
+    return s;
+}
+
+static void ServeVmware()
+{
+    SOCKET listener = INVALID_SOCKET;
+
+    while (!Stopping()) {
+        if (listener == INVALID_SOCKET)
+            listener = ListenOnVmci();
+        if (listener == INVALID_SOCKET) {
+            /* No VMware driver, or it is not ready yet: look again later. */
+            WaitForSingleObject(g_stop, 5000);
+        } else if (!AcceptFor({ listener }, 3000)) {
+            closesocket(listener);
+            listener = INVALID_SOCKET;
+        }
+    }
+    if (listener != INVALID_SOCKET)
+        closesocket(listener);
+}
+
 /* ---- tcp mode ---------------------------------------------------------- */
 
 struct TcpListener {
@@ -379,6 +455,8 @@ static void WINAPI ServiceMain(DWORD, LPWSTR *)
             ServeWsl();
         else if (lstrcmpW(g_service->mode, L"tcp") == 0)
             ServeTcp();
+        else if (lstrcmpW(g_service->mode, L"vmware") == 0)
+            ServeVmware();
         else
             WaitForSingleObject(g_stop, INFINITE); /* placeholder services do nothing yet */
         WSACleanup();

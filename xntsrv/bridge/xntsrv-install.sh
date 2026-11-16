@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs the XNTsrv bridge inside a WSL distribution.
+# Installs the XNTsrv bridge inside a WSL distribution or a VMware Linux guest.
 #
 #   curl -fsSL https://raw.githubusercontent.com/dimmskii/xntsrv/master/xntsrv/bridge/xntsrv-install.sh | sudo sh
 #
@@ -11,9 +11,16 @@
 # On a distribution without systemd there is no service; the profile script
 # starts the bridge at login instead.  xntsrv-uninstall.sh removes all of it.
 #
+# Two optional files, which this script never creates or removes:
+#   /etc/default/xntsrv-bridge  may set XNTSRV_BRIDGE_ARGS to replace the
+#                               bridge's default mapping, for example
+#                               XNTSRV_BRIDGE_ARGS=/tmp/.X11-unix/X1=vsock:2:106000
+#   /etc/xntsrv/Xauthority      the X authentication cookie, where it cannot be
+#                               read straight from Windows (VMware guests)
+#
 # Environment:
 #   XNTSRV_BASE_URL  where to fetch the other files from (default: this repository)
-#   XNTSRV_FORCE=1   install even when this does not look like WSL 2
+#   XNTSRV_FORCE=1   install even when this is neither WSL 2 nor a VMware guest
 #
 # SPDX-License-Identifier: MIT
 set -eu
@@ -25,6 +32,8 @@ PROFILE=/etc/profile.d/xntsrv.sh
 # The Windows installer ships a ready-made static binary.
 WINDOWS_COPY="/mnt/c/Program Files/XNTsrv/guest/xntsrv-bridge"
 SOCKET=/tmp/.X11-unix/X0
+CONFIG=/etc/default/xntsrv-bridge
+LOCAL_COOKIE=/etc/xntsrv/Xauthority
 
 say() { printf 'xntsrv-install: %s\n' "$*"; }
 die() { printf 'xntsrv-install: %s\n' "$*" >&2; exit 1; }
@@ -43,6 +52,7 @@ fetch() { # fetch URL DEST
 quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 
 is_wsl() { grep -qi microsoft /proc/version 2>/dev/null; }
+is_vmware() { grep -qi vmware /sys/class/dmi/id/sys_vendor 2>/dev/null; }
 has_systemd() { [ -d /run/systemd/system ]; }
 
 # Prints the distribution family: debian, fedora, suse, arch, alpine or unknown.
@@ -117,7 +127,9 @@ Description=XNTsrv bridge (X11 socket to the XNTsrv X server on Windows)
 Documentation=https://github.com/dimmskii/xntsrv
 
 [Service]
-ExecStart=$BIN
+# XNTSRV_BRIDGE_ARGS, when set there, replaces the default mapping.
+EnvironmentFile=-$CONFIG
+ExecStart=$BIN \$XNTSRV_BRIDGE_ARGS
 Restart=always
 RestartSec=2
 # The bridge only needs to create $SOCKET and open sockets.
@@ -126,7 +138,7 @@ CapabilityBoundingSet=
 ProtectSystem=strict
 ProtectHome=yes
 ReadWritePaths=/tmp
-RestrictAddressFamilies=AF_UNIX AF_VSOCK
+RestrictAddressFamilies=AF_UNIX AF_VSOCK AF_INET AF_INET6
 
 [Install]
 WantedBy=multi-user.target
@@ -136,7 +148,7 @@ EOF
     sleep 1
     if ! systemctl is-active --quiet xntsrv-bridge.service; then
         journalctl -u xntsrv-bridge.service -n 20 --no-pager 2>/dev/null || true
-        die "the xntsrv-bridge service did not start; its last messages are above"
+        die "the xntsrv-bridge service did not start; its last messages are above. If display :0 belongs to an X server on this machine, give the bridge another socket in $CONFIG"
     fi
     say "service xntsrv-bridge is running"
 }
@@ -165,6 +177,9 @@ install_profile() {
         echo 'if [ -z "${XAUTHORITY:-}" ]; then'
         if [ -n "$cookie" ]; then
             echo "    export XAUTHORITY=$(quote "$cookie")"
+        elif ! is_wsl; then
+            # No Windows drive to read it from: use a copy placed on this machine.
+            echo "    [ -r $LOCAL_COOKIE ] && export XAUTHORITY=$LOCAL_COOKIE"
         else
             # Not known at install time: take the first cookie found at login.
             echo '    for _xntsrv in /mnt/c/Users/*/AppData/Local/XNTsrv/Xauthority; do'
@@ -184,6 +199,8 @@ install_profile() {
     chmod 0644 "$PROFILE"
     if [ -n "$cookie" ]; then
         say "X authentication cookie: $cookie"
+    elif ! is_wsl; then
+        say "X authentication: copy %LOCALAPPDATA%\\XNTsrv\\Xauthority from Windows to $LOCAL_COOKIE on this machine"
     else
         say "could not ask Windows where the cookie is; login shells will look for it under /mnt/c/Users"
     fi
@@ -192,12 +209,17 @@ install_profile() {
 main() {
     [ "$(id -u)" = 0 ] || die "this needs root; run it with sudo"
 
-    if [ "${XNTSRV_FORCE:-}" != 1 ]; then
-        is_wsl || die "this is not WSL; only WSL 2 is supported for now (XNTSRV_FORCE=1 overrides)"
+    if [ "${XNTSRV_FORCE:-}" = 1 ]; then
+        :
+    elif is_wsl; then
         [ -e /dev/vsock ] || die "no /dev/vsock here; WSL 1 is not supported, convert the distribution to WSL 2"
         if [ -S /mnt/wslg/.X11-unix/X0 ]; then
             die "WSLg is active and owns display :0. Turn it off: add 'guiApplications=false' under [wsl2] in %USERPROFILE%\\.wslconfig on Windows, run 'wsl --shutdown', and run this again"
         fi
+    elif is_vmware; then
+        [ -e /dev/vsock ] || die "no /dev/vsock here; install open-vm-tools so that the VMware socket driver is loaded"
+    else
+        die "this is neither WSL 2 nor a VMware guest; nothing else is supported yet (XNTSRV_FORCE=1 overrides)"
     fi
 
     stop_existing
@@ -208,6 +230,9 @@ main() {
         say "manage it with: systemctl status xntsrv-bridge, journalctl -u xntsrv-bridge"
     else
         say "no systemd here: the bridge starts with your next login shell (log: ~/.cache/xntsrv-bridge.log)"
+    fi
+    if is_vmware && ! is_wsl; then
+        say "on Windows, start the XNTsrv VMware service (services.msc) as well as XNTsrv itself"
     fi
     say "done. Start XNTsrv on Windows, open a new terminal, and run a graphical program."
 }

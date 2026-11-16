@@ -40,6 +40,18 @@ installed "install again"
 piped xntsrv-update.sh
 installed update
 
+# A mapping set in the config file replaces the default one.
+echo 'XNTSRV_BRIDGE_ARGS=/tmp/.X11-unix/X7=vsock:2:106000' | sudo tee /etc/default/xntsrv-bridge >/dev/null
+sudo systemctl restart xntsrv-bridge
+sleep 1
+check 'config: service active' systemctl is-active --quiet xntsrv-bridge
+check 'config: uses the configured socket' test -S /tmp/.X11-unix/X7
+check 'config: default socket not created' sh -c '! [ -e /tmp/.X11-unix/X0 ]'
+sudo rm -f /etc/default/xntsrv-bridge
+sudo systemctl restart xntsrv-bridge
+sleep 1
+check 'config removed: back to the default socket' test -S /tmp/.X11-unix/X0
+
 piped xntsrv-uninstall.sh
 check 'uninstall: service stopped' sh -c '! systemctl is-active --quiet xntsrv-bridge'
 check 'uninstall: files removed' sh -c \

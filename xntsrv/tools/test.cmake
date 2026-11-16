@@ -65,11 +65,14 @@ expect(0 "InstallDir" reg query "HKLM\\SOFTWARE\\XNTsrv")
 expect(0 "Block.*xntsrv-server.exe|xntsrv-server.exe.*Block" ${FW} verbose)
 expect(0 "LocalSubnet.*6000.*Allow" ${FW_TCP} verbose)
 
-# Placeholder services start and stop like any other.
-expect(0 "" sc start XNTsrvSession)
-execute_process(COMMAND ${CMAKE_COMMAND} -E sleep 2)
-expect(0 "RUNNING" sc query XNTsrvSession)
-expect(0 "" sc stop XNTsrvSession)
+# The placeholder service, and the VMware one on a machine without VMware,
+# start, idle and stop like any other.
+foreach(svc Session VMware)
+  expect(0 "" sc start XNTsrv${svc})
+  execute_process(COMMAND ${CMAKE_COMMAND} -E sleep 2)
+  expect(0 "RUNNING" sc query XNTsrv${svc})
+  expect(0 "" sc stop XNTsrv${svc})
+endforeach()
 
 # The TCP route: off, on, limited to an address this machine does not have,
 # unlimited again, off.

@@ -41,7 +41,8 @@ const ServiceInfo kServices[] = {
       L"Listens on every network address of this computer, or only on the addresses and adapter names "
       L"listed in HKLM\\SOFTWARE\\XNTsrv\\TCP, value Listen." },
     { L"XNTsrvVMware", L"vmware", L"XNTsrv VMware", false,
-      L"Placeholder, not implemented yet. Will carry connections from VMware guests to the XNTsrv X server." },
+      L"Carries connections from VMware virtual machines on this computer to the XNTsrv X server over the "
+      L"VMware (VMCI) socket. Not started unless you start it. Needs VMware Workstation or Player installed." },
     { L"XNTsrvSession", L"session", L"XNTsrv Session", false,
       L"Placeholder, not implemented yet. Will start an XNTsrv X server in the background for each user who logs in." },
 };

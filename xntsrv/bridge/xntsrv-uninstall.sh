@@ -43,6 +43,11 @@ main() {
     else
         say "removed. DISPLAY and XAUTHORITY stay set in shells that are already open."
     fi
+    for kept in /etc/default/xntsrv-bridge /etc/xntsrv; do
+        if [ -e "$kept" ]; then
+            say "left in place, since you created it: $kept"
+        fi
+    done
 }
 
 main "$@"

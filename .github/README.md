@@ -10,7 +10,7 @@ It is based on [VcXsrv](https://github.com/marchaesen/vcxsrv).
 
 ## Installation
 
-You need Windows 10 or 11 (64-bit) with WSL 2.
+You need Windows 10 or 11 (64-bit) with WSL 2. Linux virtual machines under VMware are supported too; see [VMware guests](#vmware-guests).
 
 ### Step 1: Windows
 
@@ -54,6 +54,14 @@ curl -fsSL https://raw.githubusercontent.com/dimmskii/xntsrv/master/xntsrv/bridg
 
 You can skip this step only if you reach the server over the network instead (see [Routes](#routes)).
 
+#### VMware guests
+
+The same script works in a Linux virtual machine under VMware Workstation or Player, which reaches Windows through VMware's own socket instead of Hyper-V's. Three things differ from WSL:
+
+1. On Windows, start the **XNTsrv VMware** service in `services.msc` (set it to Automatic to keep it).
+2. The guest cannot read the authentication cookie from Windows by itself. Copy `%LOCALAPPDATA%\XNTsrv\Xauthority` from Windows to `/etc/xntsrv/Xauthority` in the guest, readable by the users who should have access.
+3. If the guest runs its own X server on display `:0`, give the bridge a different socket in `/etc/default/xntsrv-bridge`, for example `XNTSRV_BRIDGE_ARGS=/tmp/.X11-unix/X1=vsock:2:106000`, and use `DISPLAY=:1`.
+
 ## Usage
 
 1. **Start XNTsrv from the Start menu.** An X icon appears in the notification area. This step is manual for now: the part that will start the server for you at login (the XNTsrv Session service) is not finished.
@@ -94,7 +102,7 @@ The X server itself listens only on this computer (`127.0.0.1`). Each way of rea
 |---|---|---|
 | XNTsrv WSL | with Windows | The Hyper-V socket of the running WSL virtual machine. Follows WSL restarts. |
 | XNTsrv TCP | only when you start it | This computer's network addresses, limited to the local subnet by a firewall rule. To restrict it further, list addresses or adapter names in the `Listen` value (`REG_MULTI_SZ`) under `HKLM\SOFTWARE\XNTsrv\TCP`. |
-| XNTsrv VMware | placeholder | Not implemented yet. |
+| XNTsrv VMware | only when you start it | The VMware (VMCI) socket, for Linux virtual machines under VMware Workstation or Player on this computer. Not yet tested on a real machine. |
 | XNTsrv Session | placeholder | Not implemented yet. Will start the server for each user at login. |
 
 ### Command line

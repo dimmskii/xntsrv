@@ -8,7 +8,7 @@ Status as of 2026-11-15. See `.github/README.md` for what XNTsrv is and how the 
 - Launcher (`xntsrv.exe`, `xntsrvw.exe`) with a GNU-style command line.
 - Linux-side bridge (`xntsrv-bridge`).
 - Services: **XNTsrv WSL** (Hyper-V socket) and **XNTsrv TCP** (network addresses).
-- Placeholder services: **XNTsrv VMware** and **XNTsrv Session**.
+- Placeholder service: **XNTsrv Session**.
 - Setup tools: `xntsrv-register`, `xntsrv-unregister`, `xntsrv-reset`.
 - NSIS installer that packages the server built from this repository (falling back to the upstream VcXsrv release when no build is available).
 - End-to-end test on a real Windows 10 machine over the Hyper-V route.
@@ -26,12 +26,7 @@ In intended order.
 7. **Event Log output from the services.** Failures inside them are silent today.
 8. **Control Panel applet** (`xntsrv.cpl`) with a classic property sheet, opened from the tray menu's "Properties…" entry.
 9. **Group Policy templates** (ADMX).
-10. **XNTsrv VMware service.** Carry connections from VMware guests over the VMCI socket, so a Linux VM under VMware Workstation can use XNTsrv the way WSL does. Notes:
-    - Linux guests reach VMCI as the same vsock address the WSL bridge already uses (host is CID 2, port 106000), so `xntsrv-bridge` needs no VMware mode; its default works for both.
-    - The Windows side is the new part: verify the VMCI host-side socket API, then add the listener to the placeholder service.
-    - `xntsrv-install.sh` refuses to run outside WSL today. It needs to accept VMware guests, and to let the bridge's target be overridden from a config file for unusual setups.
-    - The authentication cookie has no `/mnt/c` to be read from in a VMware guest, so it needs another way into the guest.
-    - Can be tested on the maintainer's own VMware machine, which currently uses X410 over TCP.
+10. **XNTsrv VMware service.** Written, not yet tested on a real machine: the service listens on the VMware (VMCI) socket, and `xntsrv-install.sh` accepts VMware guests. The bridge needs no VMware mode, since Linux reaches VMCI as the same vsock address it uses under WSL; its mapping can be overridden in `/etc/default/xntsrv-bridge`. Still to do: test on the maintainer's VMware machine (which uses X410 over TCP today), and get the authentication cookie into the guest automatically instead of by copying it to `/etc/xntsrv/Xauthority`.
 11. **XNTsrv Session service** and per-user display mapping: start a server for each user at login, and route each user's connections to their own display.
 12. **Releases.** Tagged, immutable GitHub releases instead of CI artifacts; code signing once there is a certificate.
 
