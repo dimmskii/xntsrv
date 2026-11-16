@@ -42,6 +42,15 @@ jobs:
           $env:PATH -split ';' | Select-String -SimpleMatch 'Strawberry'
           Write-Output "UNIXTOOLS=C:\Program Files\Git\usr\bin" >> $env:GITHUB_ENV
 
+      # Upstream's makefiles run two shell scripts through "wsl": one generates
+      # a source file, the other builds the keyboard data with meson.
+      - uses: Vampire/setup-wsl@4c48163d9f981914dd8caa0fc335fe19cca5bff4 # v7.2.0
+        with:
+          distribution: Ubuntu-24.04
+          wsl-version: 1
+          update: 'true'
+          additional-packages: meson ninja-build gettext python3 pkg-config xsltproc
+
       - name: freetype
         shell: cmd
         run: xntsrv\build\build-server.cmd freetype

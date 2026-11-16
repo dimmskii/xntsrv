@@ -17,9 +17,9 @@ Status as of 2026-11-15. See `.github/README.md` for what XNTSrv is and how the 
 
 In intended order.
 
-1. **Build the server from source in CI.** In progress: the `server` workflow builds freetype, openssl, pthreads and mhmake, and fails in the server stage itself. It is manual-only until that is fixed. Gates items 2 to 5. Upstream's build needs Visual Studio, Cygwin, Perl, Python, NASM and NSIS, and its scripts assume the maintainer's machine.
+1. **Build the server from source in CI.** In progress in the `server` workflow, which is started by hand. The dependencies and most of the server compile in about eight minutes; the remaining failures are in the steps upstream runs through WSL. Gates items 2 to 5.
 2. **Rebrand script.** Make window titles, the log file and the About box say XNTSrv. Applied at build time, so the committed tree stays identical to upstream and merges stay clean.
-3. **Modern title bars.** The stock server draws dated, glitchy frames in multiwindow mode.
+3. **Rendering and responsiveness.** Ordinary windows already get modern title bars. Two things to look into: shaped windows such as `xeyes` show the classic Windows title bar that is normally hidden, and the display feels laggier than X410 over TCP. First find out whether the lag comes from the two relays (the bridge and the XNTSrv WSL service) or from the server's drawing.
 4. **Loopback-only TCP in the server.** Replaces the firewall block rule with a server that never opens a network port.
 5. **Pick up xorg security fixes.** Upstream VcXsrv's last release was 21.1.16.1 (March 2025); check what xorg-server has fixed since.
 6. ~~**Linux-side setup.**~~ Done: `xntsrv-install.sh`, `xntsrv-update.sh` and `xntsrv-uninstall.sh` install the bridge as a systemd service and set `DISPLAY` and `XAUTHORITY`. Still to do here: fetch a prebuilt bridge from a release instead of building from source, and package-manager repositories.
