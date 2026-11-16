@@ -55,7 +55,9 @@ jobs:
           sparse-checkout: xntsrv/bridge
 
       - name: Lint
-        run: shellcheck xntsrv/bridge/*.sh
+        # Warnings and errors only: the informational notes are about text the
+        # installer writes into another script on purpose.
+        run: shellcheck --severity=warning xntsrv/bridge/*.sh
 
       - name: Install, update and uninstall
         run: xntsrv/bridge/test-install.sh
