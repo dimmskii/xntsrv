@@ -63,3 +63,5 @@ Check 'registration removed' (-not (Test-Path 'HKLM:\SOFTWARE\XNTsrv'))
 
 if ($script:failures -gt 0) { throw "$($script:failures) installer check(s) failed" }
 Write-Output 'all installer checks passed'
+# The refused client above left a non-zero exit code behind; the checks decide the result.
+exit 0
