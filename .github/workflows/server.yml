@@ -34,7 +34,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           # Upstream's makefiles call these two by fixed path.
           cmd /c mklink /J C:\Python39 "$env:pythonLocation"
-          C:\Python39\python.exe -m pip install --quiet lxml mako
+          C:\Python39\python.exe -m pip install --quiet lxml mako pyyaml pycparser ply packaging
           $zip = "$env:RUNNER_TEMP\winflexbison.zip"
           Invoke-WebRequest https://github.com/lexxmark/winflexbison/releases/download/v2.5.25/win_flex_bison-2.5.25.zip -OutFile $zip
           $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
