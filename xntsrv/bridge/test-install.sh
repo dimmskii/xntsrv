@@ -5,8 +5,6 @@
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
-# Take the other files from this checkout, and skip the WSL check.
-export XNTSRV_BASE_URL="file://$here" XNTSRV_FORCE=1
 
 check() {
     desc=$1
@@ -19,8 +17,10 @@ check() {
     fi
 }
 
-# Run a script the way the README shows it: piped into a root shell.
-piped() { sudo -E sh <"$here/$1"; }
+# Run a script the way the README shows it: piped into a root shell.  The
+# settings make it take the other files from this checkout and skip the WSL
+# check; they are passed explicitly because sudo does not keep the environment.
+piped() { sudo env XNTSRV_BASE_URL="file://$here" XNTSRV_FORCE=1 sh <"$here/$1"; }
 
 installed() {
     check "$1: service active" systemctl is-active --quiet xntsrv-bridge
