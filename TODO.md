@@ -17,12 +17,12 @@ Status as of 2026-11-15. See `.github/README.md` for what XNTSrv is and how the 
 
 In intended order.
 
-1. **Build the server from source in CI.** Gates items 2 to 5. Upstream's build needs Visual Studio, Cygwin, Perl, Python, NASM and NSIS, and its scripts assume the maintainer's machine.
+1. **Build the server from source in CI.** In progress: the `server` workflow builds freetype, openssl, pthreads and mhmake, and fails in the server stage itself. It is manual-only until that is fixed. Gates items 2 to 5. Upstream's build needs Visual Studio, Cygwin, Perl, Python, NASM and NSIS, and its scripts assume the maintainer's machine.
 2. **Rebrand script.** Make window titles, the log file and the About box say XNTSrv. Applied at build time, so the committed tree stays identical to upstream and merges stay clean.
 3. **Modern title bars.** The stock server draws dated, glitchy frames in multiwindow mode.
 4. **Loopback-only TCP in the server.** Replaces the firewall block rule with a server that never opens a network port.
 5. **Pick up xorg security fixes.** Upstream VcXsrv's last release was 21.1.16.1 (March 2025); check what xorg-server has fixed since.
-6. **Linux-side setup.** Run the bridge as a systemd user service and set `DISPLAY` and `XAUTHORITY` in the shell profile.
+6. ~~**Linux-side setup.**~~ Done: `xntsrv-install.sh`, `xntsrv-update.sh` and `xntsrv-uninstall.sh` install the bridge as a systemd service and set `DISPLAY` and `XAUTHORITY`. Still to do here: fetch a prebuilt bridge from a release instead of building from source, and package-manager repositories.
 7. **Event Log output from the services.** Failures inside them are silent today.
 8. **Control Panel applet** (`xntsrv.cpl`) with a classic property sheet, opened from the tray menu's "Properties…" entry.
 9. **Group Policy templates** (ADMX).

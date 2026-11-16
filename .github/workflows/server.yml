@@ -1,12 +1,12 @@
 name: server
 
-# Builds the X server from source.  Slow, so it runs on demand and when the
-# build recipe itself changes, not on every push.
+# Builds the X server from source.  Work in progress, and slow, so for now it
+# only runs when started by hand from the Actions tab.
 on:
   workflow_dispatch:
-  push:
-    branches: [master]
-    paths: ['xntsrv/build/**', '.github/workflows/server.yml']
+  # push:
+  #   branches: [master]
+  #   paths: ['xntsrv/build/**', '.github/workflows/server.yml']
 
 permissions:
   contents: read

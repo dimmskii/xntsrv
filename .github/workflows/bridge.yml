@@ -45,3 +45,17 @@ jobs:
         with:
           name: xntsrv-bridge-x86_64
           path: xntsrv/bridge/xntsrv-bridge
+
+  # The install, update and uninstall scripts, run for real against systemd.
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: xntsrv/bridge
+
+      - name: Lint
+        run: shellcheck xntsrv/bridge/*.sh
+
+      - name: Install, update and uninstall
+        run: xntsrv/bridge/test-install.sh
