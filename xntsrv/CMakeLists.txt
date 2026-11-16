@@ -11,7 +11,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 # xntsrv_program(<name> <source> [WIN32])
 function(xntsrv_program name source)
   add_executable(${name} ${ARGN} ${source})
-  target_link_libraries(${name} PRIVATE bcrypt shell32 ole32 oleaut32 advapi32 user32 ws2_32 iphlpapi)
+  target_link_libraries(${name} PRIVATE bcrypt shell32 ole32 oleaut32 advapi32 user32 ws2_32 iphlpapi wtsapi32 userenv)
   if(MSVC)
     target_compile_options(${name} PRIVATE /W4 /WX /utf-8)
     # Static C runtime: single files with no redistributable to install.

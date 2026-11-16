@@ -55,7 +55,9 @@ expect(0 "RUNNING" sc query XNTsrvWSL)
 expect(0 "xntsrv-service.exe\" wsl" sc qc XNTsrvWSL)
 expect(0 "AUTO_START" sc qc XNTsrvWSL)
 # The other routes are installed but stay off until someone starts them.
-foreach(svc TCP VMware Session)
+expect(0 "RUNNING" sc query XNTsrvSession)
+expect(0 "AUTO_START" sc qc XNTsrvSession)
+foreach(svc TCP VMware)
   expect(0 "STOPPED" sc query XNTsrv${svc})
   expect(0 "DEMAND_START" sc qc XNTsrv${svc})
 endforeach()
@@ -66,9 +68,8 @@ expect(0 "InstallDir" reg query "HKLM\\SOFTWARE\\XNTsrv")
 expect(0 "Block.*xntsrv-server.exe|xntsrv-server.exe.*Block" ${FW} verbose)
 expect(0 "LocalSubnet.*6000.*Allow" ${FW_TCP} verbose)
 
-# The placeholder service, and the VMware one on a machine without VMware,
-# start, idle and stop like any other.
-foreach(svc Session VMware)
+# The VMware service on a machine without VMware starts, idles and stops.
+foreach(svc VMware)
   expect(0 "" sc start XNTsrv${svc})
   execute_process(COMMAND ${CMAKE_COMMAND} -E sleep 2)
   expect(0 "RUNNING" sc query XNTsrv${svc})
@@ -99,7 +100,7 @@ execute_process(COMMAND sc config XNTsrvWSL start= auto OUTPUT_QUIET ERROR_QUIET
 # Unregister keeps user settings.
 file(MAKE_DIRECTORY "$ENV{LOCALAPPDATA}/XNTsrv/sub")
 file(WRITE "$ENV{LOCALAPPDATA}/XNTsrv/sub/keep.txt" "x")
-expect(0 "Service XNTsrv WSL: +removed.*Service XNTsrv Session: +removed.*Firewall: +rules removed" ${BIN}/xntsrv-unregister.exe)
+expect(0 "Service XNTsrv WSL: +removed.*Service XNTsrv Session: +removed.*Running servers: +[0-9]+ closed.*Firewall: +rules removed" ${BIN}/xntsrv-unregister.exe)
 expect(1060 "" sc query XNTsrvWSL)
 expect(1060 "" sc query XNTsrvTCP)
 expect(1 "" ${FW})

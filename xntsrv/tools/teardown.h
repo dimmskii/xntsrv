@@ -9,6 +9,47 @@
 
 #include "firewall.h"
 
+#include <tlhelp32.h>
+
+/* Close every XNTsrv server and launcher running from this installation, in
+ * any user's session.  A running server keeps its files locked, which would
+ * make an upgrade or uninstall fail half way.  Returns how many were closed. */
+static inline int StopRunningServers()
+{
+    std::wstring dir = xnt::ProgramDir() + L"\\";
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    PROCESSENTRY32W entry = {};
+    int closed = 0;
+
+    entry.dwSize = sizeof entry;
+    if (snapshot == INVALID_HANDLE_VALUE)
+        return 0;
+    for (BOOL more = Process32FirstW(snapshot, &entry); more; more = Process32NextW(snapshot, &entry)) {
+        bool ours = false;
+        for (const wchar_t *name : { L"xntsrv-server.exe", L"xntsrvw.exe", L"xntsrv.exe" })
+            ours = ours || lstrcmpiW(entry.szExeFile, name) == 0;
+        if (!ours)
+            continue;
+
+        HANDLE process = OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE,
+                                     entry.th32ProcessID);
+        if (!process)
+            continue;
+        /* Only this installation's copies, not a same-named program elsewhere. */
+        wchar_t path[MAX_PATH * 4];
+        DWORD length = ARRAYSIZE(path);
+        if (QueryFullProcessImageNameW(process, 0, path, &length) && length > dir.size() &&
+            CompareStringOrdinal(path, (int)dir.size(), dir.c_str(), (int)dir.size(), TRUE) == CSTR_EQUAL &&
+            TerminateProcess(process, 1)) {
+            WaitForSingleObject(process, 5000);
+            closed++;
+        }
+        CloseHandle(process);
+    }
+    CloseHandle(snapshot);
+    return closed;
+}
+
 /* Stop and delete one service.  `label` is what to call it in the output, or
  * NULL to stay quiet (used for services from earlier versions).  Returns true
  * when the service is gone afterwards. */
@@ -54,8 +95,8 @@ static inline bool RemoveKey(const wchar_t *key, const wchar_t *label)
     return true;
 }
 
-/* Remove the services, the firewall rule and every registry entry
- * xntsrv-register made. */
+/* Remove the services, close running servers, and remove the firewall rules
+ * and every registry entry xntsrv-register made. */
 static inline bool RemoveMachineSetup()
 {
     bool ok = true;
@@ -71,6 +112,9 @@ static inline bool RemoveMachineSetup()
             ok = RemoveService(scm, retired, NULL) && ok;
         CloseServiceHandle(scm);
     }
+
+    /* After the services, so that the Session service cannot start another. */
+    Out(L"Running servers:       " + std::to_wstring(StopRunningServers()) + L" closed");
 
     HRESULT hr = SetFirewallRules(L"");
     if (SUCCEEDED(hr)) {

@@ -17,7 +17,9 @@
  *   vmware   Listens on the VMware (VMCI) socket, which Linux guests under
  *            VMware Workstation or Player reach as the same vsock address the
  *            WSL bridge uses.  Idle when VMware is not installed.
- *   session  Placeholder: will start an X server for each user who logs in.
+ *   session  Starts the X server (xntsrvw.exe) for each user when they log in,
+ *            and for users already logged in when the service starts.  The
+ *            server runs as that user, in their session, not elevated.
  *
  * Installed and removed by xntsrv-register and xntsrv-unregister.
  *
@@ -33,6 +35,8 @@
 #include <ws2tcpip.h>
 #include <iphlpapi.h>
 #include <objbase.h>
+#include <userenv.h>
+#include <wtsapi32.h>
 
 #include <vector>
 
@@ -439,6 +443,65 @@ static void ServeTcp()
         closesocket(l.socket);
 }
 
+/* ---- session mode ------------------------------------------------------ */
+
+/* Start the X server in one login session, as that session's user. */
+static DWORD WINAPI StartServerInSession(LPVOID param)
+{
+    DWORD session = (DWORD)(UINT_PTR)param;
+    HANDLE token = NULL;
+
+    /* Fails for sessions nobody is logged in to, such as the services' own. */
+    if (!WTSQueryUserToken(session, &token)) {
+        Log(L"session " + std::to_wstring(session) + L": no logged-in user (error " +
+            std::to_wstring(GetLastError()) + L")");
+        return 0;
+    }
+
+    std::wstring dir = xnt::ProgramDir();
+    std::wstring exe = dir + L"\\xntsrvw.exe";
+    std::wstring command = L"\"" + exe + L"\"";
+    wchar_t desktop[] = L"winsta0\\default";
+    STARTUPINFOW si = {};
+    PROCESS_INFORMATION pi = {};
+    void *environment = NULL;
+
+    si.cb = sizeof si;
+    si.lpDesktop = desktop;
+    /* The user's own environment, so the server finds their profile folders. */
+    CreateEnvironmentBlock(&environment, token, FALSE);
+
+    /* For an administrator this is the ordinary, unelevated token. */
+    if (CreateProcessAsUserW(token, exe.c_str(), &command[0], NULL, NULL, FALSE,
+                             CREATE_UNICODE_ENVIRONMENT, environment, dir.c_str(), &si, &pi)) {
+        Log(L"session " + std::to_wstring(session) + L": started " + exe);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    } else {
+        Log(L"session " + std::to_wstring(session) + L": cannot start " + exe + L" (error " +
+            std::to_wstring(GetLastError()) + L")");
+    }
+    if (environment)
+        DestroyEnvironmentBlock(environment);
+    CloseHandle(token);
+    return 0;
+}
+
+static void ServeSession()
+{
+    /* Users who are already logged in.  Later logins arrive through the
+     * service control handler. */
+    WTS_SESSION_INFOW *sessions = NULL;
+    DWORD count = 0;
+
+    if (WTSEnumerateSessionsW(WTS_CURRENT_SERVER_HANDLE, 0, 1, &sessions, &count)) {
+        for (DWORD i = 0; i < count; i++)
+            StartServerInSession((LPVOID)(UINT_PTR)sessions[i].SessionId);
+        WTSFreeMemory(sessions);
+    }
+    WaitForSingleObject(g_stop, INFINITE);
+}
+
 /* ---- service plumbing -------------------------------------------------- */
 
 static void Report(DWORD state)
@@ -447,12 +510,22 @@ static void Report(DWORD state)
     s.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
     s.dwCurrentState = state;
     s.dwControlsAccepted = state == SERVICE_RUNNING ? SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN : 0;
+    if (state == SERVICE_RUNNING && lstrcmpW(g_service->mode, L"session") == 0)
+        s.dwControlsAccepted |= SERVICE_ACCEPT_SESSIONCHANGE;
     SetServiceStatus(g_status, &s);
 }
 
-static DWORD WINAPI Handler(DWORD control, DWORD, LPVOID, LPVOID)
+static DWORD WINAPI Handler(DWORD control, DWORD eventType, LPVOID eventData, LPVOID)
 {
     switch (control) {
+    case SERVICE_CONTROL_SESSIONCHANGE:
+        /* Only the session service asks for these.  The work is handed to
+         * another thread so that this handler returns at once. */
+        if (eventType == WTS_SESSION_LOGON && eventData) {
+            DWORD session = ((WTSSESSION_NOTIFICATION *)eventData)->dwSessionId;
+            QueueUserWorkItem(StartServerInSession, (LPVOID)(UINT_PTR)session, WT_EXECUTEDEFAULT);
+        }
+        return NO_ERROR;
     case SERVICE_CONTROL_STOP:
     case SERVICE_CONTROL_SHUTDOWN:
         Report(SERVICE_STOP_PENDING);
@@ -478,7 +551,7 @@ static void Serve()
     else if (lstrcmpW(g_service->mode, L"vmware") == 0)
         ServeVmware();
     else
-        WaitForSingleObject(g_stop, INFINITE); /* placeholder services do nothing yet */
+        ServeSession();
     WSACleanup();
 }
 

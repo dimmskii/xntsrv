@@ -64,7 +64,7 @@ The same script works in a Linux virtual machine under VMware Workstation or Pla
 
 ## Usage
 
-1. **Start XNTsrv from the Start menu.** An X icon appears in the notification area. This step is manual for now: the part that will start the server for you at login (the XNTsrv Session service) is not finished.
+1. **Nothing to start.** The XNTsrv Session service starts the X server when you log in to Windows, and right after installation. An X icon in the notification area shows it is running. If you exit it from that icon, start it again from the Start menu.
 2. **Open a new WSL terminal** and run a graphical program:
 
    ```sh
@@ -91,7 +91,7 @@ On the Windows side, check that **XNTsrv WSL** is running in `services.msc`, and
 |---|---|
 | `Can't open display` at once | The bridge is not running, or `DISPLAY` is not set in this terminal. |
 | `Can't open display`, and the bridge log says `cannot reach vsock:2:106000` | The XNTsrv WSL service is stopped, or WSL was not restarted after installing. |
-| `Can't open display`, nothing in the bridge log | The X server is not running; start it from the Start menu. |
+| `Can't open display`, nothing in the bridge log | The X server is not running; start it from the Start menu, and check that XNTsrv Session is running in `services.msc`. |
 | `Authorization required` or `No protocol specified` | `XAUTHORITY` does not point at your cookie. |
 
 ### Routes
@@ -103,7 +103,7 @@ The X server itself listens only on this computer (`127.0.0.1`). Each way of rea
 | XNTsrv WSL | with Windows | The Hyper-V socket of the running WSL virtual machine. Follows WSL restarts. |
 | XNTsrv TCP | only when you start it | This computer's network addresses, limited to the local subnet by a firewall rule. To restrict it further, list addresses or adapter names in the `Listen` value (`REG_MULTI_SZ`) under `HKLM\SOFTWARE\XNTsrv\TCP`. |
 | XNTsrv VMware | only when you start it | The VMware (VMCI) socket, for Linux virtual machines under VMware Workstation or Player on this computer. Not yet tested on a real machine. |
-| XNTsrv Session | placeholder | Not implemented yet. Will start the server for each user at login. |
+| XNTsrv Session | with Windows | Not a route: starts the X server for each user when they log in. With several users logged in at once, only the first server can run for now. |
 
 ### Command line
 
@@ -119,7 +119,7 @@ xntsrv --dry-run
 
 ### Uninstalling
 
-Remove **XNTsrv** in Windows Settings under Apps. That keeps your settings; to delete those as well, for every user, run `xntsrv-reset` from an administrator prompt before uninstalling. On the Linux side, run the uninstall script above.
+Remove **XNTsrv** in Windows Settings under Apps. That closes the running server and keeps your settings; to delete those as well, for every user, run `xntsrv-reset` from an administrator prompt before uninstalling. On the Linux side, run the uninstall script above.
 
 ## For developers
 

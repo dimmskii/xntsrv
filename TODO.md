@@ -8,7 +8,7 @@ Status as of 2026-11-15. See `.github/README.md` for what XNTsrv is and how the 
 - Launcher (`xntsrv.exe`, `xntsrvw.exe`) with a GNU-style command line.
 - Linux-side bridge (`xntsrv-bridge`).
 - Services: **XNTsrv WSL** (Hyper-V socket) and **XNTsrv TCP** (network addresses).
-- Placeholder service: **XNTsrv Session**.
+- **XNTsrv Session** service: starts the server at login.
 - Setup tools: `xntsrv-register`, `xntsrv-unregister`, `xntsrv-reset`.
 - NSIS installer that packages the server built from this repository (falling back to the upstream VcXsrv release when no build is available).
 - End-to-end test on a real Windows 10 machine over the Hyper-V route.
@@ -27,12 +27,12 @@ In intended order.
 8. **Control Panel applet** (`xntsrv.cpl`) with a classic property sheet, opened from the tray menu's "Properties…" entry.
 9. **Group Policy templates** (ADMX).
 10. **XNTsrv VMware service.** Written, not yet tested on a real machine: the service listens on the VMware (VMCI) socket, and `xntsrv-install.sh` accepts VMware guests. The bridge needs no VMware mode, since Linux reaches VMCI as the same vsock address it uses under WSL; its mapping can be overridden in `/etc/default/xntsrv-bridge`. Still to do: test on the maintainer's VMware machine (which uses X410 over TCP today), and get the authentication cookie into the guest automatically instead of by copying it to `/etc/xntsrv/Xauthority`.
-11. **XNTsrv Session service** and per-user display mapping: start a server for each user at login, and route each user's connections to their own display.
+11. **XNTsrv Session service and per-user displays.** The service is done: it starts the server for each user at login and for users already logged in, as that user and not elevated. Still to do: a display per user (today every server wants `:0`, so a second logged-in user's server fails to start), routing each user's connections to their own display, not starting a second server when one is already running, and restarting after a crash.
 12. **Releases.** Tagged, immutable GitHub releases instead of CI artifacts; code signing once there is a certificate.
 
 ## Known gaps
 
-- Nothing starts the X server automatically; it is started from the Start menu (item 11).
+- Restarting the XNTsrv Session service, or starting XNTsrv from the Start menu, while a server is already running starts a second one, which fails with an error box (item 11).
 - The services always forward to display `:0`, and with several users logged in the WSL service uses the first WSL VM it finds (item 11).
 - The WSL service polls for WSL restarts every few seconds instead of being notified.
 - The stock server opens its TCP port on every interface; a firewall rule blocks inbound connections to it (item 4).
