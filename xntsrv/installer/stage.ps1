@@ -55,6 +55,10 @@ if ($LASTEXITCODE -ne 0) { throw "7z failed with exit code $LASTEXITCODE" }
 Remove-Item -Recurse -Force (Join-Path $OutDir '$PLUGINSDIR')
 Remove-Item -Force (Join-Path $OutDir 'uninstall.exe')
 Remove-Item -Force (Join-Path $OutDir 'xlaunch.exe')   # starts "vcxsrv.exe" by name
+# Upstream's X0.hosts trusts "localhost", which lets any program on this
+# computer connect without the authentication cookie.  Ship it with no hosts.
+Set-Content -Encoding ascii (Join-Path $OutDir 'X0.hosts') "# Hosts that may connect without X authentication. XNTsrv lists none."
+
 # A build from this repository already names its server xntsrv-server.exe.
 if (Test-Path (Join-Path $OutDir 'vcxsrv.exe')) {
     Rename-Item (Join-Path $OutDir 'vcxsrv.exe') 'xntsrv-server.exe'

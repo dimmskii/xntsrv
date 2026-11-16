@@ -65,9 +65,17 @@ Write-Output $resources.Trim()
 Check 'display scale published (Xft.dpi)' ($resources -match 'Xft\.dpi:\s+\d+')
 Check 'pointer size published (Xcursor.size)' ($resources -match 'Xcursor\.size:\s+\d+')
 Write-Output "what the helper reads from this machine: $((& "$dir\xntsrv-appearance.exe" --print) -join ', ')"
+# Without the cookie nobody gets in, whichever name this computer is reached by.
 $env:XAUTHORITY = Join-Path $env:TEMP 'no-such-cookie'
-$info = & "$dir\xwininfo.exe" -root -display 127.0.0.1:0 2>&1 | Out-String
-Check 'a client without the cookie is refused' ($info -notmatch 'Width: \d+')
+foreach ($address in '127.0.0.1:0', 'localhost:0', '[::1]:0') {
+    $info = & "$dir\xwininfo.exe" -root -display $address 2>&1 | Out-String
+    Check "a client without the cookie is refused at $address" ($info -notmatch 'Width: \d+')
+}
+# The server's own window manager and clipboard connect to it as clients.  If
+# they were refused it would give up after about 25 seconds, so see it outlive that.
+$started = (Get-Process xntsrv-server -ErrorAction SilentlyContinue | Select-Object -First 1).StartTime
+while ($started -and ((Get-Date) - $started).TotalSeconds -lt 40) { Start-Sleep -Seconds 1 }
+Check 'server still running after its own clients connected' ($null -ne (Get-Process xntsrv-server -ErrorAction SilentlyContinue))
 Write-Output "server product name: $((Get-Item "$dir\xntsrv-server.exe").VersionInfo.ProductName)"
 # The log is XNTsrv.0.log from a build of this repository, VCXSrv.0.log from the upstream release.
 foreach ($log in 'XNTsrv.0.log', 'VCXSrv.0.log') {
