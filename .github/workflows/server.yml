@@ -48,8 +48,12 @@ jobs:
         with:
           distribution: Ubuntu-24.04
           wsl-version: 1
-          update: 'true'
-          additional-packages: meson ninja-build gettext python3 pkg-config xsltproc
+
+      # Installed by hand, without upgrading the distribution first: upgrading
+      # systemd fails under WSL 1.
+      - name: Install packages in WSL
+        shell: cmd
+        run: wsl -u root -- sh -c "apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends meson ninja-build gettext python3 pkg-config xsltproc"
 
       - name: freetype
         shell: cmd
