@@ -17,7 +17,7 @@ Status as of 2026-11-15. See `.github/README.md` for what XNTsrv is and how the 
 
 In intended order.
 
-1. **Build the server from source in CI.** In progress in the `server` workflow, which is started by hand. The dependencies and most of the server compile in about eight minutes; the remaining failures are in the steps upstream runs through WSL. Gates items 2 to 5.
+1. ~~**Build the server from source in CI.**~~ Done: the `server` workflow builds the whole tree from source and uploads `vcxsrv.exe`. It is started by hand from the Actions tab. Still to do here: check that the built server runs, and have the installer package this build (with its DLLs, fonts and keyboard data) in place of the upstream release.
 2. **Rebrand script.** Make window titles, the log file and the About box say XNTsrv. Applied at build time, so the committed tree stays identical to upstream and merges stay clean.
 3. **Rendering and responsiveness.** Ordinary windows already get modern title bars. Two things to look into: shaped windows such as `xeyes` show the classic Windows title bar that is normally hidden, and the display feels laggier than X410 over TCP. First find out whether the lag comes from the two relays (the bridge and the XNTsrv WSL service) or from the server's drawing.
 4. **Loopback-only TCP in the server.** Replaces the firewall block rule with a server that never opens a network port.
