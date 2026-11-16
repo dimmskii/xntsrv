@@ -10,15 +10,15 @@ Status as of 2026-11-15. See `.github/README.md` for what XNTsrv is and how the 
 - Services: **XNTsrv WSL** (Hyper-V socket) and **XNTsrv TCP** (network addresses).
 - Placeholder services: **XNTsrv VMware** and **XNTsrv Session**.
 - Setup tools: `xntsrv-register`, `xntsrv-unregister`, `xntsrv-reset`.
-- NSIS installer that bundles the stock VcXsrv release as `xntsrv-server.exe`.
+- NSIS installer that packages the server built from this repository (falling back to the upstream VcXsrv release when no build is available).
 - End-to-end test on a real Windows 10 machine over the Hyper-V route.
 
 ## To do
 
 In intended order.
 
-1. ~~**Build the server from source in CI.**~~ Done: the `server` workflow builds the whole tree from source and uploads `vcxsrv.exe`. It is started by hand from the Actions tab. Still to do here: check that the built server runs, and have the installer package this build (with its DLLs, fonts and keyboard data) in place of the upstream release.
-2. **Rebrand script.** Make window titles, the log file and the About box say XNTsrv. Applied at build time, so the committed tree stays identical to upstream and merges stay clean.
+1. ~~**Build the server from source in CI.**~~ Done: the `server` workflow builds the whole tree from source and packages it with upstream's installer script. It runs when the server's sources or the build recipe change. The installer build takes that package from the latest successful run, and its test starts the built server and queries it with an X client.
+2. ~~**Rebrand script.**~~ Done: `xntsrv/build/rebrand.py` renames the executable, vendor strings, titles, About box, log file and internal object names at build time, so the committed tree stays identical to upstream.
 3. **Rendering and responsiveness.** Ordinary windows already get modern title bars. Two things to look into: shaped windows such as `xeyes` show the classic Windows title bar that is normally hidden, and the display feels laggier than X410 over TCP. First find out whether the lag comes from the two relays (the bridge and the XNTsrv WSL service) or from the server's drawing.
 4. **Loopback-only TCP in the server.** Replaces the firewall block rule with a server that never opens a network port.
 5. **Pick up xorg security fixes.** Upstream VcXsrv's last release was 21.1.16.1 (March 2025); check what xorg-server has fixed since.
