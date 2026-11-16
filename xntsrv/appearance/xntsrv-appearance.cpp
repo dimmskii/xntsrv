@@ -2,7 +2,8 @@
  * xntsrv-appearance - makes X programs follow the user's Windows appearance.
  *
  * Started by the launcher next to the X server, as the same user.  It reads
- * a few classic Windows settings and publishes them to X programs over X's
+ * a few classic Windows settings (display scale, UI font, pointer size, light
+ * or dark preference, and the console's colours) and publishes them over X's
  * own channels: the XSETTINGS property, which toolkits watch, and the X
  * resources on the root window.  Nothing is installed in any guest.  It
  * republishes when Windows reports a change, and ends when the server does.
@@ -121,6 +122,28 @@ static Appearance ReadWindows(unsigned xWidth)
 
     a.preferDark = RegistryNumber(L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
                                   L"AppsUseLightTheme", 1) == 0;
+
+    /* The colours of the Windows console (cmd, PowerShell), for X terminals.
+     * Where the user has not changed one, Windows' own default applies. */
+    static const DWORD kDefault[16] = { /* as 0x00BBGGRR, in Windows' order */
+        0x000C0C0C, 0x00DA3700, 0x000EA113, 0x00DD963A, 0x001F0FC5, 0x00981788, 0x00009CC1, 0x00CCCCCC,
+        0x00767676, 0x00FF783B, 0x000CC616, 0x00D6D661, 0x005648E7, 0x009E00B4, 0x00A5F1F9, 0x00F2F2F2,
+    };
+    /* Windows numbers them black, blue, green, cyan, red, magenta, yellow,
+     * white; terminals swap red with blue and yellow with cyan. */
+    static const int kWindowsIndex[8] = { 0, 4, 2, 6, 1, 5, 3, 7 };
+    static const int kTerminalIndex[8] = { 0, 4, 2, 6, 1, 5, 3, 7 };
+    for (int i = 0; i < 16; i++) {
+        int w = kWindowsIndex[i & 7] | (i & 8);
+        wchar_t name[16];
+        wsprintfW(name, L"ColorTable%02d", w);
+        DWORD bgr = RegistryNumber(L"Console", name, kDefault[w]);
+        a.palette.push_back(((bgr & 0xff) << 16) | (bgr & 0xff00) | ((bgr >> 16) & 0xff));
+    }
+    /* Low four bits: the text colour; next four: the background. */
+    DWORD screen = RegistryNumber(L"Console", L"ScreenColors", 0x07);
+    a.foreground = kTerminalIndex[screen & 7] | (int)(screen & 8);
+    a.background = kTerminalIndex[(screen >> 4) & 7] | (int)((screen >> 4) & 8);
     return a;
 }
 
@@ -203,6 +226,8 @@ static void Print(const Appearance &a)
     Out(L"cursor=" + std::to_wstring(a.cursorSize));
     Out(L"dark=" + std::to_wstring(a.preferDark ? 1 : 0));
     Out(L"font=" + Wide(a.font));
+    for (const auto &resource : ResourcesFor(a))
+        Out(Wide(resource.first + ": " + resource.second));
 }
 
 int wmain(int argc, wchar_t **argv)
@@ -262,10 +287,22 @@ int wmain(int argc, wchar_t **argv)
     }
 
     CreateListenerWindow();
+    /* Console colours are changed without any announcement, so watch their
+     * registry key. */
+    HKEY console = NULL;
+    HANDLE consoleChanged = CreateEventW(NULL, FALSE, FALSE, NULL);
+    DWORD watched = 0;
+    if (consoleChanged && RegOpenKeyExW(HKEY_CURRENT_USER, L"Console", 0, KEY_NOTIFY, &console) == ERROR_SUCCESS &&
+        RegNotifyChangeKeyValue(console, FALSE, REG_NOTIFY_CHANGE_LAST_SET, consoleChanged, TRUE) == ERROR_SUCCESS)
+        watched = 1;
+
     for (;;) {
-        /* Wake on a message from Windows, and now and then regardless, to
-         * notice the server going away. */
-        MsgWaitForMultipleObjects(0, NULL, FALSE, 3000, QS_ALLINPUT);
+        /* Wake on a message from Windows or a console colour change, and now
+         * and then regardless, to notice the server going away. */
+        if (MsgWaitForMultipleObjects(watched, &consoleChanged, FALSE, 3000, QS_ALLINPUT) == WAIT_OBJECT_0 && watched) {
+            g_changed = true;
+            RegNotifyChangeKeyValue(console, FALSE, REG_NOTIFY_CHANGE_LAST_SET, consoleChanged, TRUE);
+        }
         MSG message;
         while (PeekMessageW(&message, NULL, 0, 0, PM_REMOVE))
             DispatchMessageW(&message);

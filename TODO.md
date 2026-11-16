@@ -34,7 +34,7 @@ In intended order.
 12. **Releases.** Tagged, immutable GitHub releases instead of CI artifacts; code signing once there is a certificate.
 13. **Follow the Windows appearance.** Make X programs match the user's Windows settings, and follow changes to them. A per-user helper, started with the server, pushes settings to clients over X's own channels (XSETTINGS and the root window's resources), so it works for every kind of guest with nothing installed in it; files are used only where a program has to read them itself. Only the classic settings are read (colours, fonts, metrics, cursors), plus display scale and the light/dark switch; Aero effects are not. Uses Windows' built-in imaging, no bundled image library. In order:
     1. ~~DPI, UI font, cursor size and light/dark preference.~~ Done: `xntsrv-appearance.exe`, started by the launcher. Not yet checked: what each toolkit does with the values, and live changes on a real desktop.
-    2. Terminal colours from the Windows console palette, as xterm resources.
+    2. ~~Terminal colours from the Windows console palette, as xterm resources.~~ Done, for xterm-style terminals.
     3. The Windows cursor scheme converted to X cursor files (WSL first, read through `/mnt/c`).
     4. A GTK 2 and GTK 3 colour scheme generated from the classic system colours; Qt and others later.
 

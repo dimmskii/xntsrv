@@ -5,6 +5,35 @@
  */
 #include "publish.h"
 
+#include <cstdio>
+
+static std::string Hex(uint32_t rgb)
+{
+    char text[8];
+    snprintf(text, sizeof text, "#%06x", (unsigned)(rgb & 0xffffff));
+    return text;
+}
+
+std::vector<std::pair<std::string, std::string>> ResourcesFor(const Appearance &a)
+{
+    std::vector<std::pair<std::string, std::string>> r = {
+        { "Xft.dpi", std::to_string(a.dpi) },
+        { "Xcursor.size", std::to_string(a.cursorSize) },
+    };
+    if (a.palette.size() == 16) {
+        /* Read by xterm and the terminals that follow its conventions. */
+        for (int i = 0; i < 16; i++)
+            r.push_back({ "*color" + std::to_string(i), Hex(a.palette[(size_t)i]) });
+        /* Named per program: a bare "*background" would repaint every
+         * old-style X program, not only terminals. */
+        for (const char *program : { "XTerm", "UXTerm", "URxvt" }) {
+            r.push_back({ std::string(program) + "*foreground", Hex(a.palette[(size_t)(a.foreground & 15)]) });
+            r.push_back({ std::string(program) + "*background", Hex(a.palette[(size_t)(a.background & 15)]) });
+        }
+    }
+    return r;
+}
+
 Publisher::Result Publisher::Start(XClient *x, const Appearance &a)
 {
     x_ = x;
@@ -51,10 +80,7 @@ bool Publisher::Write(const Appearance &a)
     /* X resources reach programs that do not read XSETTINGS.  Whatever else is
      * there, such as the user's own xrdb settings, is kept. */
     std::string before = x_->GetProperty(x_->Root(), resourceAtom_);
-    std::string after = MergeResources(before, {
-        { "Xft.dpi", std::to_string(a.dpi) },
-        { "Xcursor.size", std::to_string(a.cursorSize) },
-    });
+    std::string after = MergeResources(before, ResourcesFor(a));
     if (after != before)
         x_->ChangeProperty(x_->Root(), resourceAtom_, stringAtom_, after);
     return x_->IsOpen();

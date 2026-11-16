@@ -61,9 +61,10 @@ Check 'an X client can query the server' ($info -match 'Width: \d+')
 # settings as X resources; read them back the way any X program would.
 Check 'appearance helper is running' ($null -ne (Get-Process xntsrv-appearance -ErrorAction SilentlyContinue))
 $resources = & "$dir\xrdb.exe" -display 127.0.0.1:0 -query 2>&1 | Out-String
-Write-Output $resources.Trim()
+Write-Output ($resources.Trim() -split "`r?`n" | Select-Object -First 4)
 Check 'display scale published (Xft.dpi)' ($resources -match 'Xft\.dpi:\s+\d+')
 Check 'pointer size published (Xcursor.size)' ($resources -match 'Xcursor\.size:\s+\d+')
+Check 'terminal colours published' ($resources -match '\*color1:\s+#[0-9a-f]{6}' -and $resources -match 'XTerm\*background:\s+#[0-9a-f]{6}')
 Write-Output "what the helper reads from this machine: $((& "$dir\xntsrv-appearance.exe" --print) -join ', ')"
 # Without the cookie nobody gets in, whichever name this computer is reached by.
 $env:XAUTHORITY = Join-Path $env:TEMP 'no-such-cookie'

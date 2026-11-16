@@ -57,6 +57,23 @@ static int Unit()
     Check("resources: unchanged when already set",
           MergeResources("Xft.dpi:\t144\n", { { "Xft.dpi", "144" } }) == "Xft.dpi:\t144\n");
 
+    Appearance a;
+    a.dpi = 144;
+    a.cursorSize = 48;
+    Check("resources for: no palette, two entries", ResourcesFor(a).size() == 2);
+    for (uint32_t i = 0; i < 16; i++)
+        a.palette.push_back(i * 0x111111);
+    a.foreground = 15;
+    a.background = 4;
+    std::string merged = MergeResources("", ResourcesFor(a));
+    Check("resources for: palette entries", merged.find("*color0:\t#000000\n") != std::string::npos &&
+                                                merged.find("*color15:\t#ffffff\n") != std::string::npos &&
+                                                merged.find("*color9:\t#999999\n") != std::string::npos);
+    Check("resources for: terminal text and background", merged.find("XTerm*foreground:\t#ffffff\n") != std::string::npos &&
+                                                             merged.find("XTerm*background:\t#444444\n") != std::string::npos &&
+                                                             merged.find("URxvt*background:\t#444444\n") != std::string::npos);
+    Check("resources for: nothing sets a bare *background", merged.find("\n*background") == std::string::npos);
+
     /* One wildcard-family entry, as the launcher writes it. */
     std::string file("\xff\xff\x00\x00\x00\x01" "0" "\x00\x12" "MIT-MAGIC-COOKIE-1" "\x00\x04" "ABCD", 33);
     Check("Xauthority: cookie found", CookieFromXauthority(file) == "ABCD");
@@ -95,6 +112,9 @@ static int Live(int argc, char **argv)
     a.font = argv[6];
     a.cursorSize = atoi(argv[7]);
     a.preferDark = atoi(argv[8]) != 0;
+    /* A recognisable palette: every colour distinct. */
+    for (uint32_t i = 0; i < 16; i++)
+        a.palette.push_back(0x102030 + i * 0x0d0b07);
 
     Publisher p;
     switch (p.Start(&x, a)) {

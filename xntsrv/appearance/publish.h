@@ -14,12 +14,22 @@ struct Appearance {
     std::string font;      /* UI font as "Family Size", e.g. "Segoe UI 9"; may be empty */
     int cursorSize = 32;   /* in pixels */
     bool preferDark = false;
+    /* Terminal colours: 16 values as 0xRRGGBB in the order terminals number
+     * them (black, red, green, yellow, blue, magenta, cyan, white, then the
+     * bright ones), and which of them are the default text and background.
+     * Empty when not known. */
+    std::vector<uint32_t> palette;
+    int foreground = 7, background = 0;
 
     bool operator==(const Appearance &o) const
     {
-        return dpi == o.dpi && font == o.font && cursorSize == o.cursorSize && preferDark == o.preferDark;
+        return dpi == o.dpi && font == o.font && cursorSize == o.cursorSize && preferDark == o.preferDark &&
+               palette == o.palette && foreground == o.foreground && background == o.background;
     }
 };
+
+/* The X resources that carry `a`, as name and value pairs. */
+std::vector<std::pair<std::string, std::string>> ResourcesFor(const Appearance &a);
 
 class Publisher {
 public:
