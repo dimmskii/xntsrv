@@ -1,42 +1,62 @@
-#!/bin/sh
+#!/bin/bash
 # Installs the XNTsrv bridge inside a WSL distribution or a VMware Linux guest.
 #
-#   curl -fsSL https://raw.githubusercontent.com/dimmskii/xntsrv/master/xntsrv/bridge/xntsrv-install.sh | sudo sh
+#   curl -fsSL https://raw.githubusercontent.com/dimmskii/xntsrv/master/xntsrv/bridge/xntsrv-install.sh | sudo bash
 #
 # It installs:
-#   /usr/local/bin/xntsrv-bridge              the forwarder
+#   /usr/local/lib/xntsrv/xntsrv-bridge       the forwarder
 #   /etc/systemd/system/xntsrv-bridge.service a service that keeps it running
-#   /etc/profile.d/xntsrv.sh                  DISPLAY, XAUTHORITY and the cursor and GTK theme paths for login shells
+#   /etc/profile.d/xntsrv.sh                  DISPLAY, XAUTHORITY, the audio server and the cursor and GTK theme paths
+#                                             for login shells
 #   /etc/fonts/conf.d/99-xntsrv-windows-fonts.conf
 #                                             WSL only: the Windows fonts, used where they are
+#   /etc/alsa/conf.d/99-xntsrv-pulse.conf     sends programs that only know ALSA to the audio server
+#
+# For audio it also installs the distribution's ALSA plugin for PulseAudio and
+# PulseAudio's client tools (pactl, paplay) when they are missing; these stay
+# when XNTsrv is uninstalled.  Programs here talk to XNTsrv's audio server on
+# Windows; no sound server runs in this guest.
 #
 # On a distribution without systemd there is no service; the profile script
 # starts the bridge at login instead.  xntsrv-uninstall.sh removes all of it.
 #
-# Two optional files, which this script never creates or removes:
-#   /etc/default/xntsrv-bridge  may set XNTSRV_BRIDGE_ARGS to replace the
-#                               bridge's default mapping, for example
-#                               XNTSRV_BRIDGE_ARGS=/tmp/.X11-unix/X1=vsock:2:106000
-#   /etc/xntsrv/Xauthority      the X authentication cookie, where it cannot be
-#                               read straight from Windows (VMware guests)
+# Optional files in /etc/xntsrv, which this script never creates or removes:
+#   bridge.conf   may set XNTSRV_BRIDGE_ARGS to replace the bridge's mappings,
+#                 for example XNTSRV_BRIDGE_ARGS=/tmp/.X11-unix/X1=vsock:2:106000
+#   Xauthority    the X authentication cookie, and
+#   pulse-cookie  the audio one, where they cannot be read straight from
+#                 Windows (VMware guests)
 #
 # Environment:
 #   XNTSRV_BASE_URL  where to fetch the other files from (default: this repository)
 #   XNTSRV_FORCE=1   install even when this is neither WSL 2 nor a VMware guest
+#   XNTSRV_AUDIO=no  leave audio out
 #
 # SPDX-License-Identifier: MIT
 set -eu
 
 BASE_URL=${XNTSRV_BASE_URL:-https://raw.githubusercontent.com/dimmskii/xntsrv/master/xntsrv/bridge}
-BIN=/usr/local/bin/xntsrv-bridge
+LIBDIR=/usr/local/lib/xntsrv
+BIN=$LIBDIR/xntsrv-bridge
 UNIT=/etc/systemd/system/xntsrv-bridge.service
 PROFILE=/etc/profile.d/xntsrv.sh
 # The Windows installer ships a ready-made static binary.
 WINDOWS_COPY="/mnt/c/Program Files/XNTsrv/guest/xntsrv-bridge"
 SOCKET=/tmp/.X11-unix/X0
-CONFIG=/etc/default/xntsrv-bridge
+CONFIG=/etc/xntsrv/bridge.conf
 LOCAL_COOKIE=/etc/xntsrv/Xauthority
+LOCAL_PULSE_COOKIE=/etc/xntsrv/pulse-cookie
 FONTS_CONF=/etc/fonts/conf.d/99-xntsrv-windows-fonts.conf
+ALSA_CONF=/etc/alsa/conf.d/99-xntsrv-pulse.conf
+# The vsock ports XNTsrv's services listen on (CID 2 is the host).
+X_TARGET=vsock:2:106000
+AUDIO_TARGET=vsock:2:104713
+# Where programs find the audio server: under the service's runtime
+# directory, or, with no systemd, where a bridge started at login can create it.
+PULSE_SOCKET_SYSTEMD=/run/xntsrv/pulse/native
+PULSE_SOCKET_LOGIN=/tmp/.xntsrv-pulse/native
+
+audio_wanted() { [ "${XNTSRV_AUDIO:-yes}" != no ]; }
 
 say() { printf 'xntsrv-install: %s\n' "$*"; }
 die() { printf 'xntsrv-install: %s\n' "$*" >&2; exit 1; }
@@ -110,6 +130,14 @@ install_binary() {
     install -m 0755 "$tmp/xntsrv-bridge" "$BIN"
 }
 
+# The bridge's LISTEN=TARGET mappings: X, and audio unless left out.
+bridge_args() {
+    printf '%s=%s' "$SOCKET" "$X_TARGET"
+    if audio_wanted; then
+        printf ' %s=%s' "$1" "$AUDIO_TARGET"
+    fi
+}
+
 # Stop whatever bridge is running, so the new one can take the socket.
 stop_existing() {
     if has_systemd; then
@@ -126,16 +154,19 @@ stop_existing() {
 install_service() {
     cat >"$UNIT" <<EOF
 [Unit]
-Description=XNTsrv bridge (X11 socket to the XNTsrv X server on Windows)
+Description=XNTsrv bridge (X11 and audio sockets to XNTsrv on Windows)
 Documentation=https://github.com/dimmskii/xntsrv
 
 [Service]
-# XNTSRV_BRIDGE_ARGS, when set there, replaces the default mapping.
+Environment="XNTSRV_BRIDGE_ARGS=$(bridge_args "$PULSE_SOCKET_SYSTEMD")"
+# XNTSRV_BRIDGE_ARGS, when set there, replaces the mappings above.
 EnvironmentFile=-$CONFIG
 ExecStart=$BIN \$XNTSRV_BRIDGE_ARGS
 Restart=always
 RestartSec=2
-# The bridge only needs to create $SOCKET and open sockets.
+# /run/xntsrv, for the audio socket.
+RuntimeDirectory=xntsrv
+# The bridge only needs to create its sockets and open others.
 NoNewPrivileges=yes
 CapabilityBoundingSet=
 ProtectSystem=strict
@@ -172,6 +203,11 @@ windows_cookie() {
 
 install_profile() {
     cookie=$(windows_cookie)
+    if has_systemd; then
+        pulse_socket=$PULSE_SOCKET_SYSTEMD
+    else
+        pulse_socket=$PULSE_SOCKET_LOGIN
+    fi
     mkdir -p "$(dirname "$PROFILE")"
     {
         echo '# XNTsrv: send X11 programs to the XNTsrv X server on Windows.'
@@ -191,6 +227,26 @@ install_profile() {
             echo '    unset _xntsrv'
         fi
         echo 'fi'
+        if audio_wanted; then
+            # PULSE_SERVER set already, or a sound server of this session's
+            # own (a desktop guest's PipeWire or PulseAudio): leave it be.
+            echo '# Audio: to the XNTsrv audio server on Windows, unless this session has its own.'
+            echo "if [ -z \"\${PULSE_SERVER:-}\" ] && ! [ -S \"\${XDG_RUNTIME_DIR:-/nonexistent}/pulse/native\" ]; then"
+            echo "    export PULSE_SERVER=unix:$pulse_socket"
+            echo '    if [ -z "${PULSE_COOKIE:-}" ]; then'
+            if [ -n "$cookie" ]; then
+                echo "        export PULSE_COOKIE=$(quote "$(dirname "$cookie")/pulse-cookie")"
+            elif ! is_wsl; then
+                echo "        [ -r $LOCAL_PULSE_COOKIE ] && export PULSE_COOKIE=$LOCAL_PULSE_COOKIE"
+            else
+                echo '        for _xntsrv in /mnt/c/Users/*/AppData/Local/XNTsrv/pulse-cookie; do'
+                echo '            [ -r "$_xntsrv" ] && export PULSE_COOKIE="$_xntsrv" && break'
+                echo '        done'
+                echo '        unset _xntsrv'
+            fi
+            echo '    fi'
+            echo 'fi'
+        fi
         if [ -n "$cookie" ]; then
             # XNTsrv converts the Windows pointer scheme into an X cursor theme
             # beside the cookie; put it where programs look for cursor themes.
@@ -210,7 +266,7 @@ install_profile() {
             echo '# No systemd here, so nothing else keeps the bridge running.'
             echo "if ! pgrep -x xntsrv-bridge >/dev/null 2>&1; then"
             echo '    mkdir -p "$HOME/.cache"'
-            echo "    (setsid $BIN >>\"\$HOME/.cache/xntsrv-bridge.log\" 2>&1 &)"
+            echo "    (setsid $BIN $(bridge_args "$pulse_socket") >>\"\$HOME/.cache/xntsrv-bridge.log\" 2>&1 &)"
             echo 'fi'
         fi
     } >"$PROFILE"
@@ -219,6 +275,9 @@ install_profile() {
         say "X authentication cookie: $cookie"
     elif ! is_wsl; then
         say "X authentication: copy %LOCALAPPDATA%\\XNTsrv\\Xauthority from Windows to $LOCAL_COOKIE on this machine"
+        if audio_wanted; then
+            say "audio: likewise %LOCALAPPDATA%\\XNTsrv\\pulse-cookie to $LOCAL_PULSE_COOKIE"
+        fi
     else
         say "could not ask Windows where the cookie is; login shells will look for it under /mnt/c/Users"
     fi
@@ -257,6 +316,48 @@ $own"
     say "Windows fonts: $(printf '%s' "$dirs" | tr '\n' ' ')"
 }
 
+# The ALSA plugin that sends ALSA programs to a PulseAudio server, and
+# PulseAudio's client tools, from the distribution.  Programs that speak
+# PulseAudio (or PipeWire's PulseAudio interface) bring their own client
+# library; programs that only know ALSA need the plugin.
+pulse_plugin_present() {
+    for dir in /usr/lib /usr/lib64 /usr/lib/*-linux-gnu*; do
+        [ -e "$dir/alsa-lib/libasound_module_pcm_pulse.so" ] && return 0
+    done
+    return 1
+}
+
+install_audio_packages() {
+    if pulse_plugin_present && command -v pactl >/dev/null 2>&1; then
+        return 0
+    fi
+    family=$(distro_family)
+    say "installing the ALSA plugin for PulseAudio and PulseAudio's client tools ($family)"
+    case $family in
+        debian) apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends libasound2-plugins pulseaudio-utils ;;
+        fedora) dnf install -y alsa-plugins-pulseaudio pulseaudio-utils ;;
+        suse) zypper --non-interactive install alsa-plugins-pulse pulseaudio-utils ;;
+        arch) pacman -S --noconfirm --needed alsa-plugins libpulse ;;
+        alpine) apk add alsa-plugins-pulse pulseaudio-utils ;;
+        *) false ;;
+    esac || say "could not install them; programs that only know ALSA will have no sound (install your distribution's ALSA PulseAudio plugin by hand)"
+}
+
+install_audio() {
+    install_audio_packages
+    if pulse_plugin_present; then
+        mkdir -p "$(dirname "$ALSA_CONF")"
+        {
+            echo '# XNTsrv: programs that only know ALSA play through PulseAudio, which'
+            echo '# reaches the XNTsrv audio server on Windows.  Written by xntsrv-install.sh;'
+            echo '# removed by xntsrv-uninstall.sh.'
+            echo 'pcm.!default { type pulse }'
+            echo 'ctl.!default { type pulse }'
+        } >"$ALSA_CONF"
+        chmod 0644 "$ALSA_CONF"
+    fi
+}
+
 main() {
     [ "$(id -u)" = 0 ] || die "this needs root; run it with sudo"
 
@@ -277,6 +378,9 @@ main() {
     install_binary
     install_profile
     install_fonts
+    if audio_wanted; then
+        install_audio
+    fi
     if has_systemd; then
         install_service
         say "manage it with: systemctl status xntsrv-bridge, journalctl -u xntsrv-bridge"
@@ -285,6 +389,9 @@ main() {
     fi
     if is_vmware && ! is_wsl; then
         say "on Windows, start the XNTsrv VMware service (services.msc) as well as XNTsrv itself"
+    fi
+    if audio_wanted; then
+        say "audio: programs reach XNTsrv's audio server on Windows (check from a new terminal with: pactl info)"
     fi
     say "done. Start XNTsrv on Windows, open a new terminal, and run a graphical program."
 }

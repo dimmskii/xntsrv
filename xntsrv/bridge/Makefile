@@ -9,7 +9,7 @@ static: LDFLAGS += -static
 static: xntsrv-bridge
 
 install: xntsrv-bridge
-	install -D -m 0755 xntsrv-bridge $(DESTDIR)$(PREFIX)/bin/xntsrv-bridge
+	install -D -m 0755 xntsrv-bridge $(DESTDIR)$(PREFIX)/lib/xntsrv/xntsrv-bridge
 
 clean:
 	rm -f xntsrv-bridge

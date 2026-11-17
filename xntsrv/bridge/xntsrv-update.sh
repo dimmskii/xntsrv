@@ -1,7 +1,7 @@
-#!/bin/sh
+#!/bin/bash
 # Updates the XNTsrv bridge by removing it and installing the current version.
 #
-#   curl -fsSL https://raw.githubusercontent.com/dimmskii/xntsrv/master/xntsrv/bridge/xntsrv-update.sh | sudo sh
+#   curl -fsSL https://raw.githubusercontent.com/dimmskii/xntsrv/master/xntsrv/bridge/xntsrv-update.sh | sudo bash
 #
 # Honours the same environment variables as xntsrv-install.sh.
 #
@@ -31,8 +31,8 @@ main() {
     # installed bridge alone.
     fetch "$BASE_URL/xntsrv-uninstall.sh" "$tmp/uninstall.sh"
     fetch "$BASE_URL/xntsrv-install.sh" "$tmp/install.sh"
-    sh "$tmp/uninstall.sh"
-    sh "$tmp/install.sh"
+    bash "$tmp/uninstall.sh"
+    bash "$tmp/install.sh"
 }
 
 main "$@"

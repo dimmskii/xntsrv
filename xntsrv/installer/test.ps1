@@ -62,7 +62,13 @@ CheckComponents 'full again' $true $true $true
 
 $lines = @(& "$dir\xntsrv.exe" --dry-run --no-auth)
 Check "launcher finds its server: $($lines[0])" ($lines[0] -like "`"$dir\xntsrv-server.exe`" :0 *")
-Check "launcher would start the audio server: $($lines[1])" ($lines[1] -like "`"$dir\audio\bin\pulseaudio.exe`" -n *")
+# It names the audio server it would start, unless one already runs (the
+# Session service may have started the X server, and audio with it, by now).
+if (Get-Process pulseaudio -ErrorAction SilentlyContinue) {
+    Check 'launcher leaves a running audio server be' ($lines.Count -eq 1)
+} else {
+    Check "launcher would start the audio server: $($lines[1])" ($lines[1] -like "`"$dir\audio\bin\pulseaudio.exe`" -n *")
+}
 
 # The Session service starts the server for whoever is logged in.  A CI runner
 # may have no logged-in session for it to find; then start the server the way
