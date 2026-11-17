@@ -2,9 +2,10 @@
  * The Windows Firewall rules XNTsrv needs.
  *
  * Server rule: the X server needs TCP for its own window manager and for the
- * XNTsrv services, all of which use 127.0.0.1.  Until XNTsrv builds a server
- * that binds to loopback only, the stock one opens its port on every
- * interface, so inbound connections to it are blocked.  Loopback traffic is
+ * XNTsrv services, all of which use 127.0.0.1.  The server, built from the
+ * VcXsrv tree, still opens its port on every interface, so inbound
+ * connections to it are blocked until it binds to loopback only (TODO.md,
+ * item 4).  Loopback traffic is
  * not subject to the firewall and keeps working.
  *
  * TCP service rule: lets the XNTsrv TCP service, when someone starts it,

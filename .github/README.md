@@ -44,6 +44,7 @@ That installs three things:
 | `/usr/local/bin/xntsrv-bridge` | The bridge. Taken from the Windows install, or built from source if that copy is missing. |
 | `/etc/systemd/system/xntsrv-bridge.service` | Keeps the bridge running. On a distribution without systemd there is no service, and the bridge starts with your login shell instead. |
 | `/etc/profile.d/xntsrv.sh` | Sets `DISPLAY`, `XAUTHORITY` and the cursor and GTK theme paths for login shells. |
+| `/etc/fonts/conf.d/99-xntsrv-windows-fonts.conf` | WSL only: lets X programs use the fonts installed on Windows, read where they are, so they get Segoe UI and Consolas. Nothing is copied. |
 
 To remove or update it:
 
@@ -73,9 +74,20 @@ The same script works in a Linux virtual machine under VMware Workstation or Pla
 
    Each program gets its own Windows window.
 
-X programs follow a few of your Windows settings: the display scale, the interface font, the pointer scheme and size, the light or dark app mode, and, for xterm-style terminals, the look of the Windows console: its colours, font and size, window size, scrollback and cursor shape. Change one in Windows and running programs are told; terminal settings apply to terminals opened afterwards. This reaches programs that listen for such settings (GTK 2 and 3, for example) and ones that read X resources; start the server with `xntsrv --no-appearance` to turn it off.
+X programs follow your Windows settings, and aim to look and behave like classic Windows programs:
 
-The pointer scheme is converted into an X cursor theme, and GTK 2 and GTK 3 programs get a theme in your classic Windows colours, drawn flat with no pictures, shadows or animations. (In Windows' dark mode the colours stay light, so GTK's own dark theme is used there.) Both are generated in your Windows profile. WSL distributions pick them up through the install script's profile file (run the update script once if you installed the bridge before this existed); other guests keep their own cursors and theme for now.
+- **Display and text:** the display scale, the interface font, and font smoothing (off, standard or ClearType, in your screen's colour order). Where the guest lacks the Windows font, fonts of the same width are used instead (Selawik, then Liberation Sans), not the much wider DejaVu Sans; WSL distributions use the fonts installed on Windows.
+- **Pointers:** your pointer scheme and size.
+- **Mouse and keyboard:** double-click time and distance, drag distance, caret blink rate and when it stops, animations on or off, and whether access keys are always underlined.
+- **Behaviour:** scroll bars that stay visible, dialogs with a title bar and a row of buttons, window buttons on the right, and a click in a scroll bar's trough moving by a page.
+- **Light or dark** app mode.
+- **xterm-style terminals:** the look of the Windows console: its colours, font and size, window size, scrollback and cursor shape.
+
+Change one in Windows and running programs are told; terminal settings apply to terminals opened afterwards. This reaches programs that listen for such settings (GTK 2 and 3, for example) and ones that read X resources; start the server with `xntsrv --no-appearance` to turn it off.
+
+The pointer scheme is converted into an X cursor theme, and GTK 2 and GTK 3 programs get a theme in your classic Windows colours, drawn flat with no pictures, shadows or animations, with Windows' control sizes (23-pixel buttons and text boxes, 75-pixel dialog buttons) and text without kerning, as Windows draws it. Both are generated in your Windows profile. WSL distributions pick them up through the install script's profile file (run the update script once if you installed the bridge before this existed); other guests keep their own cursors and theme for now.
+
+Known limits: in Windows' dark mode the classic colours stay light, so GTK's own dark theme is used there, with its own, larger sizes. Pointers that invert the screen under them in Windows, such as the default text pointer, come out black. GTK 3 programs that are already running keep their colours when you change the Windows colours.
 
 Authentication is on: programs must present a cookie that XNTsrv creates in your Windows profile, and the install script points `XAUTHORITY` at it.
 
@@ -106,7 +118,7 @@ The X server itself listens only on this computer (`127.0.0.1`). Each way of rea
 |---|---|---|
 | XNTsrv WSL | with Windows | The Hyper-V socket of the running WSL virtual machine. Follows WSL restarts. |
 | XNTsrv TCP | only when you start it | This computer's network addresses, limited to the local subnet by a firewall rule. To restrict it further, list addresses or adapter names in the `Listen` value (`REG_MULTI_SZ`) under `HKLM\SOFTWARE\XNTsrv\TCP`. |
-| XNTsrv VMware | only when you start it | The VMware (VMCI) socket, for Linux virtual machines under VMware Workstation or Player on this computer. Not yet tested on a real machine. |
+| XNTsrv VMware | only when you start it | The VMware (VMCI) socket, for Linux virtual machines under VMware Workstation or Player on this computer. Not working yet: on the one real machine tried, the guest could not open the connection. Use XNTsrv TCP from VMware guests for now. |
 | XNTsrv Session | with Windows | Not a route: starts the X server for each user when they log in. With several users logged in at once, only the first server can run for now. |
 
 ### Command line

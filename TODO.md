@@ -1,6 +1,8 @@
 # XNTsrv to-do
 
-Status as of 2026-11-15. See `.github/README.md` for what XNTsrv is and how the pieces fit together.
+Status as of 2026-11-17. See `.github/README.md` for what XNTsrv is and how the pieces fit together.
+
+`master` is protected from here on: each piece of work below goes on its own branch and arrives by pull request. The next ones dig into the server itself (items 3, 4, 5 and 13.6).
 
 ## Done
 
@@ -23,6 +25,7 @@ In intended order.
     - Shaped windows such as `xeyes` show the classic Windows title bar that is normally hidden.
     - The display has felt laggier than X410 over TCP, somewhat less so with the server built from this repository. Measurements through both relays show high throughput (an 8 MB screenshot in 0.17 s, 240 frames a second from `glxgears`), which points away from the relays and towards the server's window handling or connection set-up (about 50 ms per new connection).
     - Opening a menu takes about 90 ms, against 17 ms to repaint an existing window and 0.3 ms for a round trip. The figure is the same to within a millisecond under Adwaita and under XNTsrv's flat theme, so it is not the theme's drawing: it is the cost of creating and showing a new window on the server. This is the most likely source of the sluggish feel of menus.
+    - Every pointer change (hovering over a link or a text box, say) makes `winSetCursor` build a new Windows pointer from the X image and destroy the old one; nothing is cached. Item 13.6 removes this for the standard pointers.
     - OpenGL through the X server (indirect rendering, `LIBGL_ALWAYS_INDIRECT=1`) reaches the Windows graphics card but is not healthy: `glxinfo` reports `GLXBadCurrentWindow`, `glxgears` prints no frame count, and it only offers OpenGL 1.4. Inherited from upstream. By default programs render in software inside the guest, which works.
 4. **Loopback-only TCP in the server.** Replaces the firewall block rule with a server that never opens a network port.
 5. **Pick up xorg security fixes.** Upstream VcXsrv's last release was 21.1.16.1 (March 2025); check what xorg-server has fixed since.
@@ -30,7 +33,7 @@ In intended order.
 7. **Event Log output from the services.** Failures inside them are silent today.
 8. **Control Panel applet** (`xntsrv.cpl`) with a classic property sheet, opened from the tray menu's "Properties…" entry.
 9. **Group Policy templates** (ADMX).
-10. **XNTsrv VMware service.** Written, not yet tested on a real machine: the service listens on the VMware (VMCI) socket, and `xntsrv-install.sh` accepts VMware guests. The bridge needs no VMware mode, since Linux reaches VMCI as the same vsock address it uses under WSL; its mapping can be overridden in `/etc/default/xntsrv-bridge`. Still to do: test on the maintainer's VMware machine (which uses X410 over TCP today), and get the authentication cookie into the guest automatically instead of by copying it to `/etc/xntsrv/Xauthority`.
+10. **XNTsrv VMware service.** Written: the service listens on the VMware (VMCI) socket, and `xntsrv-install.sh` accepts VMware guests. The bridge needs no VMware mode, since Linux reaches VMCI as the same vsock address it uses under WSL; its mapping can be overridden in `/etc/default/xntsrv-bridge`. Tried on the maintainer's VMware machine (Ubuntu 24.04 guest): the guest's direct connection fails with `EINVAL`, and the kernel logs `Could not attach to queue pair with -10`, so that guest uses the XNTsrv TCP service over the host-only network instead. Still to do: find out why the VMCI connection is refused, and get the authentication cookie into the guest automatically instead of by copying it to `/etc/xntsrv/Xauthority`.
 11. **XNTsrv Session service and per-user displays.** The service is done: it starts the server for each user at login and for users already logged in, as that user and not elevated. Still to do: a display per user (today every server wants `:0`, so a second logged-in user's server fails to start), routing each user's connections to their own display, not starting a second server when one is already running, and restarting after a crash.
 12. **Releases.** Tagged, immutable GitHub releases instead of CI artifacts; code signing once there is a certificate.
 13. **Follow the Windows appearance.** Make X programs match the user's Windows settings, and follow changes to them. A per-user helper, started with the server, pushes settings to clients over X's own channels (XSETTINGS and the root window's resources), so it works for every kind of guest with nothing installed in it; files are used only where a program has to read them itself. Only the classic settings are read (colours, fonts, metrics, cursors), plus display scale and the light/dark switch; Aero effects are not. Uses Windows' built-in imaging, no bundled image library. In order:
@@ -38,8 +41,9 @@ In intended order.
     2. ~~Terminal colours from the Windows console palette, as xterm resources.~~ Done, for xterm-style terminals, along with the console's font and size, window size, scrollback and cursor shape.
     3. ~~The Windows cursor scheme converted to X cursor files (WSL first, read through `/mnt/c`).~~ Done for WSL. Still to do: get the theme to guests that cannot read the Windows profile (VMware), and the real frame rate of animated pointers (a fixed 50 ms per frame is used).
     4. ~~A GTK 2 and GTK 3 colour scheme generated from the classic system colours.~~ Done for WSL: a flat theme with no pictures, gradients, shadows or animations, used in light mode. The GTK 3 theme was checked against `gtk3-widget-factory`; the GTK 2 one has not been seen running. Still to do: Qt and other toolkits, reloading running programs when the Windows colours change, and guests that cannot read the Windows profile.
-    5. ~~Sizes and text as classic Windows programs have them.~~ Done: font smoothing and ClearType order, mouse and caret timings, animations and access-key underlining are read from Windows; scroll bars that stay, dialogs with title bars, window buttons on the right and paging scroll-bar troughs are set; the UI font falls back to Selawik and Liberation Sans (DejaVu Sans, the usual fallback, is 15% wider); terminals get the console font's em size rather than its cell height; the GTK 3 theme draws Windows' control sizes (23-pixel buttons, text boxes and lists, 75-pixel dialog buttons, 22-pixel menu items) without kerning, as GDI does; WSL guests use the Windows fonts in place. Measured with GTK 3 on a VMware guest; not yet run on Windows itself, and GTK 2's sizes are unchanged and unseen. The pointer size is published as three quarters of Windows' (X themes count 24 where Windows counts 32) until the next item makes it unnecessary.
+    5. ~~Sizes and text as classic Windows programs have them.~~ Done: font smoothing and ClearType order, mouse and caret timings, animations and access-key underlining are read from Windows; scroll bars that stay, dialogs with title bars, window buttons on the right and paging scroll-bar troughs are set; the UI font falls back to Selawik and Liberation Sans (DejaVu Sans, the usual fallback, is 15% wider); terminals get the console font's em size rather than its cell height; the GTK 3 theme draws Windows' control sizes (23-pixel buttons, text boxes and lists, 75-pixel dialog buttons, 22-pixel menu items) without kerning, as GDI does; WSL guests use the Windows fonts in place. Measured with GTK 3 on a VMware guest and run by CI on Windows; GTK 2's sizes are unchanged and unseen. The pointer size is published as three quarters of Windows' (X themes count 24 where Windows counts 32) until the next item makes it unnecessary.
     6. **Windows' own pointers in the server.** Cursors reach the server named (libXcursor names them through XFixes, even the old cursor-font ones), so `winLoadCursor` can show the matching shared Windows pointer (`LoadCursor(NULL, IDC_IBEAM)`, ...) and convert only the rest. That follows the scheme, size and animations exactly in every guest with nothing installed, replacing the cursor theme and the three-quarter size. `winSetCursor` must then not destroy shared pointers.
+    7. **Paused here (2026-11-17).** 13.5 is on the WSL laptop for testing. Still seen there: pointers that come out black where Windows inverts the screen under them, most likely the default text pointer. The conversion turns inverting pixels into solid black (`PixelsFromTwoBackgrounds`), and X has no inverting colour for ARGB cursors; 13.6 avoids the problem. GTK 2 sizes not yet seen (`gtk-chtheme` from universe).
 
 ## Known gaps
 
@@ -48,6 +52,10 @@ In intended order.
 - The WSL service polls for WSL restarts every few seconds instead of being notified.
 - The stock server opens its TCP port on every interface; a firewall rule blocks inbound connections to it (item 4).
 - The installer is unsigned, so SmartScreen warns (item 12).
+- VMware guests get neither the converted cursor theme nor the GTK theme, so they keep their own (items 13.3, 13.4 and 13.6).
+- In Windows' dark mode GTK's own dark theme is used, so the classic control sizes and text without kerning apply in light mode only (item 13.5).
+- Changing the Windows colours rewrites the GTK theme's colour file, but running GTK programs do not reload it, since the theme's name stays the same (item 13.4).
+- Pointers that invert the screen under them in Windows come out black (item 13.7).
 
 ## Tests still to run by hand
 
