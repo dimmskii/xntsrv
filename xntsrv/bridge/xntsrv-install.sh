@@ -7,6 +7,8 @@
 #   /usr/local/bin/xntsrv-bridge              the forwarder
 #   /etc/systemd/system/xntsrv-bridge.service a service that keeps it running
 #   /etc/profile.d/xntsrv.sh                  DISPLAY, XAUTHORITY and the cursor and GTK theme paths for login shells
+#   /etc/fonts/conf.d/99-xntsrv-windows-fonts.conf
+#                                             WSL only: the Windows fonts, used where they are
 #
 # On a distribution without systemd there is no service; the profile script
 # starts the bridge at login instead.  xntsrv-uninstall.sh removes all of it.
@@ -34,6 +36,7 @@ WINDOWS_COPY="/mnt/c/Program Files/XNTsrv/guest/xntsrv-bridge"
 SOCKET=/tmp/.X11-unix/X0
 CONFIG=/etc/default/xntsrv-bridge
 LOCAL_COOKIE=/etc/xntsrv/Xauthority
+FONTS_CONF=/etc/fonts/conf.d/99-xntsrv-windows-fonts.conf
 
 say() { printf 'xntsrv-install: %s\n' "$*"; }
 die() { printf 'xntsrv-install: %s\n' "$*" >&2; exit 1; }
@@ -221,6 +224,39 @@ install_profile() {
     fi
 }
 
+# Lets X programs use the fonts installed on Windows, read where they are,
+# so that they get Windows' own Segoe UI and Consolas rather than fonts of
+# other sizes.  Nothing is copied.
+install_fonts() {
+    is_wsl && [ -d /mnt/c/Windows/Fonts ] || return 0
+    dirs=/mnt/c/Windows/Fonts
+    # Fonts installed for one user only.
+    cookie=$(windows_cookie)
+    if [ -n "$cookie" ]; then
+        own="$(dirname "$(dirname "$cookie")")/Microsoft/Windows/Fonts"
+        [ -d "$own" ] && dirs="$dirs
+$own"
+    fi
+    mkdir -p "$(dirname "$FONTS_CONF")"
+    {
+        echo '<?xml version="1.0"?>'
+        echo '<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">'
+        echo '<!-- XNTsrv: the fonts installed on Windows.  Written by xntsrv-install.sh;'
+        echo '     removed by xntsrv-uninstall.sh. -->'
+        echo '<fontconfig>'
+        printf '%s\n' "$dirs" | while IFS= read -r dir; do
+            printf '  <dir>%s</dir>\n' "$(printf '%s' "$dir" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')"
+        done
+        echo '</fontconfig>'
+    } >"$FONTS_CONF"
+    chmod 0644 "$FONTS_CONF"
+    if command -v fc-cache >/dev/null 2>&1; then
+        say "indexing the Windows fonts (only this once; it can take a minute)"
+        printf '%s\n' "$dirs" | while IFS= read -r dir; do fc-cache "$dir" >/dev/null 2>&1 || true; done
+    fi
+    say "Windows fonts: $(printf '%s' "$dirs" | tr '\n' ' ')"
+}
+
 main() {
     [ "$(id -u)" = 0 ] || die "this needs root; run it with sudo"
 
@@ -240,6 +276,7 @@ main() {
     stop_existing
     install_binary
     install_profile
+    install_fonts
     if has_systemd; then
         install_service
         say "manage it with: systemctl status xntsrv-bridge, journalctl -u xntsrv-bridge"

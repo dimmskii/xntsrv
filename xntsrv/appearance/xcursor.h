@@ -18,6 +18,16 @@ struct CursorFrame {
     std::vector<uint32_t> pixels; /* width * height, 0xAARRGGBB with colour premultiplied by alpha */
 };
 
+/* The X cursor size that matches a Windows pointer of `windowsPixels`.
+ *
+ * TEMPORARY, until the server shows Windows' own pointers.  The two count
+ * differently: a Windows pointer of 32 pixels draws its arrow about 19
+ * pixels tall, and X cursor themes draw that arrow at their size 24.  Asking
+ * guests for 32 gets their themes' larger pointers, half as big again.  Our
+ * own theme's files carry the same number, so they are still an exact match
+ * and are never resized by libXcursor. */
+inline uint32_t XcursorNominal(uint32_t windowsPixels) { return (windowsPixels * 3 + 2) / 4; }
+
 /* The contents of an X cursor file holding these frames, all of one nominal
  * size.  Empty if the frames are unusable. */
 std::string EncodeXcursor(const std::vector<CursorFrame> &frames);

@@ -25,7 +25,7 @@ std::string EncodeXcursor(const std::vector<CursorFrame> &frames)
 
     /* Every frame of an animation carries the same nominal size; libXcursor
      * picks the size nearest the one the program asks for. */
-    uint32_t nominal = frames[0].width > frames[0].height ? frames[0].width : frames[0].height;
+    uint32_t nominal = XcursorNominal(frames[0].width > frames[0].height ? frames[0].width : frames[0].height);
 
     std::string out = "Xcur";
     Put32(&out, kFileHeader);

@@ -9,6 +9,7 @@ set -eu
 BIN=/usr/local/bin/xntsrv-bridge
 UNIT=/etc/systemd/system/xntsrv-bridge.service
 PROFILE=/etc/profile.d/xntsrv.sh
+FONTS_CONF=/etc/fonts/conf.d/99-xntsrv-windows-fonts.conf
 SOCKET=/tmp/.X11-unix/X0
 
 say() { printf 'xntsrv-uninstall: %s\n' "$*"; }
@@ -24,7 +25,7 @@ main() {
     pkill -x xntsrv-bridge 2>/dev/null || true
 
     removed=0
-    for file in "$UNIT" "$BIN" "$PROFILE"; do
+    for file in "$UNIT" "$BIN" "$PROFILE" "$FONTS_CONF"; do
         if [ -e "$file" ]; then
             rm -f "$file"
             removed=$((removed + 1))

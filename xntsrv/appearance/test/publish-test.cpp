@@ -13,6 +13,7 @@
  */
 #include "../publish.h"
 #include "../theme.h"
+#include "../xcursor.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -61,7 +62,21 @@ static int Unit()
     Appearance a;
     a.dpi = 144;
     a.cursorSize = 48;
-    Check("resources for: no palette, two entries", ResourcesFor(a).size() == 2);
+    Check("resources for: no palette, eight entries", ResourcesFor(a).size() == 8);
+    std::string plain = MergeResources("", ResourcesFor(a));
+    Check("resources for: text drawn as Windows draws it",
+          plain.find("Xft.antialias:\ttrue\n") != std::string::npos && plain.find("Xft.hintstyle:\thintfull\n") != std::string::npos &&
+              plain.find("Xft.rgba:\trgb\n") != std::string::npos);
+    Check("resources for: old cursor-font pointers themed", plain.find("Xcursor.theme_core:\ttrue\n") != std::string::npos);
+
+    Check("UI font: Segoe UI falls back to fonts of its size",
+          UiFontName("Segoe UI", 9) == "Segoe UI, Selawik, Liberation Sans 9");
+    Check("UI font: another family falls back to Liberation Sans", UiFontName("Tahoma", 8) == "Tahoma, Liberation Sans 8");
+    Check("UI font: Liberation Sans not named twice", UiFontName("Liberation Sans", 9) == "Liberation Sans 9");
+    Check("UI font: none", UiFontName("", 9).empty());
+    Check("points: whole and fractional", Points(12) == "12" && Points(10.5) == "10.5" && Points(9.75) == "9.75" &&
+                                              Points(10.0 / 3) == "3.33");
+    Check("cursor size: Windows 32 is X 24, and 48 is 36", XcursorNominal(32) == 24 && XcursorNominal(48) == 36);
     a.cursorTheme = "XNTsrv";
     Check("resources for: cursor theme", MergeResources("", ResourcesFor(a)).find("Xcursor.theme:\tXNTsrv\n") != std::string::npos);
     for (uint32_t i = 0; i < 16; i++)
@@ -79,15 +94,15 @@ static int Unit()
     Check("resources for: no terminal look unless given", merged.find("faceSize") == std::string::npos);
     a.terminalFont = "Consolas";
     a.terminalBold = true;
-    a.terminalPoints = 12;
+    a.terminalPoints = 10.5;
     a.terminalColumns = 120;
     a.terminalRows = 30;
     a.terminalScrollback = 8971;
     a.terminalUnderlineCursor = true;
     merged = MergeResources("", ResourcesFor(a));
     Check("resources for: terminal font", merged.find("XTerm*faceName:\tConsolas:bold\n") != std::string::npos &&
-                                              merged.find("XTerm*faceSize:\t12\n") != std::string::npos &&
-                                              merged.find("URxvt*font:\txft:Consolas:bold:size=12\n") != std::string::npos);
+                                              merged.find("XTerm*faceSize:\t10.5\n") != std::string::npos &&
+                                              merged.find("URxvt*font:\txft:Consolas:bold:size=10.5\n") != std::string::npos);
     a.terminalScrollback = 0;
     Check("resources for: no history setting when Windows keeps none",
           MergeResources("", ResourcesFor(a)).find("saveLines") == std::string::npos);

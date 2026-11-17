@@ -22,9 +22,12 @@
 #include <ws2tcpip.h>
 #include <shlobj.h>
 
+#include <algorithm>
+
 #include "cursors-win.h"
 #include "publish.h"
 #include "theme-win.h"
+#include "xcursor.h"
 
 using std::wstring;
 
@@ -90,6 +93,51 @@ static DWORD RegistryNumber(const wchar_t *key, const wchar_t *name, DWORD fallb
     return fallback;
 }
 
+/* A number under HKEY_CURRENT_USER that Windows keeps either as a number or,
+ * as in Control Panel\Desktop, as text. */
+static DWORD RegistryNumberOrText(const wchar_t *key, const wchar_t *name, DWORD fallback)
+{
+    DWORD value = 0, size = sizeof value;
+    if (RegGetValueW(HKEY_CURRENT_USER, key, name, RRF_RT_REG_DWORD, NULL, &value, &size) == ERROR_SUCCESS)
+        return value;
+    wchar_t text[32] = L"";
+    size = sizeof text;
+    if (RegGetValueW(HKEY_CURRENT_USER, key, name, RRF_RT_REG_SZ, NULL, text, &size) == ERROR_SUCCESS && text[0] >= L'0' &&
+        text[0] <= L'9')
+        return (DWORD)_wtoi(text);
+    return fallback;
+}
+
+static bool SystemFlag(UINT action, bool fallback)
+{
+    BOOL value = fallback;
+    return SystemParametersInfoW(action, 0, &value, 0) ? value != FALSE : fallback;
+}
+
+/* The em size, in pixels, of the console font `face` whose character cells
+ * are `cellPixels` tall; the console sizes its fonts by the whole cell, X
+ * terminals by the em.  0 if Windows cannot say. */
+static int ConsoleEmPixels(const wchar_t *face, int cellPixels, bool bold)
+{
+    int em = 0;
+    HDC dc = CreateCompatibleDC(NULL);
+    /* A positive height asks for the cell height, as the console does. */
+    HFONT font = CreateFontW(cellPixels, 0, 0, 0, bold ? FW_BOLD : FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, face);
+    if (dc && font) {
+        HGDIOBJ previous = SelectObject(dc, font);
+        TEXTMETRICW metrics = {};
+        if (GetTextMetricsW(dc, &metrics))
+            em = metrics.tmHeight - metrics.tmInternalLeading;
+        SelectObject(dc, previous);
+    }
+    if (font)
+        DeleteObject(font);
+    if (dc)
+        DeleteDC(dc);
+    return em > 0 && em <= cellPixels ? em : 0;
+}
+
 /* What Windows says now.  `xWidth` is the width of the X screen in pixels, or
  * 0 when not connected. */
 static Appearance ReadWindows(unsigned xWidth)
@@ -104,6 +152,7 @@ static Appearance ReadWindows(unsigned xWidth)
         a.cursorTheme = kCursorThemeName;
 
     int dpi = PrimaryDpi();
+    int windowsDpi = dpi;
 
     /* The X server may see the desktop in real pixels or in pixels Windows
      * scales for it, depending on how it was started.  Comparing its screen
@@ -123,14 +172,40 @@ static Appearance ReadWindows(unsigned xWidth)
         int points = MulDiv(height < 0 ? -height : height, 72, systemDpi ? (int)systemDpi() : 96);
         if (points < 6 || points > 72)
             points = 9;
-        a.font = Utf8(metrics.lfMessageFont.lfFaceName) + " " + std::to_string(points);
+        a.font = UiFontName(Utf8(metrics.lfMessageFont.lfFaceName), points);
     }
+
+    /* Font smoothing: off, grey ("standard"), or ClearType in the screen's
+     * order of colours. */
+    a.antialias = SystemFlag(SPI_GETFONTSMOOTHING, true);
+    UINT smoothing = 2, order = 1; /* FE_FONTSMOOTHINGCLEARTYPE, FE_FONTSMOOTHINGORIENTATIONRGB */
+    SystemParametersInfoW(0x200A /* SPI_GETFONTSMOOTHINGTYPE */, 0, &smoothing, 0);
+    SystemParametersInfoW(0x2012 /* SPI_GETFONTSMOOTHINGORIENTATION */, 0, &order, 0);
+    a.subpixel = !a.antialias || smoothing != 2 ? "none" : order == 0 ? "bgr" : "rgb";
+
+    /* Mouse and caret timings.  Distances are in the pixels Windows uses for
+     * this process; the X screen may be in other ones, as with the DPI. */
+    a.doubleClickMs = (int)GetDoubleClickTime();
+    /* Windows gives the size of the whole box round the first click. */
+    int box = (std::max)(GetSystemMetrics(SM_CXDOUBLECLK), GetSystemMetrics(SM_CYDOUBLECLK));
+    int drag = (std::max)(GetSystemMetrics(SM_CXDRAG), GetSystemMetrics(SM_CYDRAG));
+    a.doubleClickDistance = (std::max)(1, MulDiv(box, a.dpi, 2 * windowsDpi));
+    a.dragThreshold = (std::max)(1, MulDiv(drag, a.dpi, windowsDpi));
+    /* Windows gives the time the caret stays on, or off; GTK the whole cycle. */
+    UINT blink = GetCaretBlinkTime();
+    a.caretBlinkMs = blink == 0 || blink == INFINITE ? 0 : (int)(std::min)(blink, 10000u) * 2;
+    /* Windows stops the caret blinking after a while without typing. */
+    DWORD caretTimeout = RegistryNumberOrText(L"Control Panel\\Desktop", L"CaretTimeout", 5000);
+    a.caretTimeoutSeconds = (int)(std::max)(1ul, (std::min)((caretTimeout + 999) / 1000, 3600ul));
+    a.animations = SystemFlag(SPI_GETCLIENTAREAANIMATION, true);
+    /* "Underline access keys" in Settings; otherwise they show while Alt is held. */
+    a.alwaysUnderlineAccessKeys = SystemFlag(SPI_GETKEYBOARDCUES, false);
 
     /* The pointer size chosen in Settings, which Windows scales with the display. */
     DWORD base = RegistryNumber(L"Control Panel\\Cursors", L"CursorBaseSize", 32);
     if (base < 16 || base > 256)
         base = 32;
-    a.cursorSize = MulDiv((int)base, a.dpi, 96);
+    a.cursorSize = (int)XcursorNominal((uint32_t)MulDiv((int)base, a.dpi, 96));
 
     a.preferDark = RegistryNumber(L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
                                   L"AppsUseLightTheme", 1) == 0;
@@ -174,9 +249,14 @@ static Appearance ReadWindows(unsigned xWidth)
     /* "Terminal" is the old bitmap font, which has no counterpart to ask for. */
     a.terminalFont = lstrcmpiW(face, L"Terminal") == 0 ? "" : Utf8(face);
     a.terminalBold = RegistryNumber(L"Console", L"FontWeight", 400) >= 600;
-    /* High half: the character height in pixels at 100% scale. */
+    /* High half: the height of a character cell in pixels at 100% scale.
+     * X terminals take the font's em size in points, which is smaller: a cell
+     * of 16 pixels in Consolas has an em of 14, 10.5 points. */
     int pixels = (int)(RegistryNumber(L"Console", L"FontSize", 0x00100000) >> 16);
-    a.terminalPoints = pixels >= 6 && pixels <= 144 ? MulDiv(pixels, 72, 96) : 12;
+    if (pixels < 6 || pixels > 144)
+        pixels = 16;
+    int em = ConsoleEmPixels(face, pixels, a.terminalBold);
+    a.terminalPoints = em ? em * 72.0 / 96 : pixels * 72.0 / 96 / 1.17; /* most fonts' cell is about 1.17 ems */
     /* High half: rows; low half: columns. */
     DWORD window = RegistryNumber(L"Console", L"WindowSize", 0x001E0078);
     DWORD buffer = RegistryNumber(L"Console", L"ScreenBufferSize", 0x23290078);
@@ -272,6 +352,12 @@ static void Print(const Appearance &a)
     Out(L"cursor=" + std::to_wstring(a.cursorSize));
     Out(L"dark=" + std::to_wstring(a.preferDark ? 1 : 0));
     Out(L"font=" + WideUtf8(a.font));
+    Out(L"text=" + WideUtf8(a.antialias ? "smooth " + a.subpixel : "jagged"));
+    Out(L"double-click=" + std::to_wstring(a.doubleClickMs) + L"ms " + std::to_wstring(a.doubleClickDistance) + L"px drag=" +
+        std::to_wstring(a.dragThreshold) + L"px");
+    Out(L"caret-blink=" + std::to_wstring(a.caretBlinkMs) + L"ms for " + std::to_wstring(a.caretTimeoutSeconds) + L"s");
+    Out(L"animations=" + std::to_wstring(a.animations ? 1 : 0) + L" underline-access-keys=" +
+        std::to_wstring(a.alwaysUnderlineAccessKeys ? 1 : 0));
     Out(L"gtk-theme=" + WideUtf8(a.gtkTheme));
     for (const auto &resource : ResourcesFor(a))
         Out(WideUtf8(resource.first + ": " + resource.second));
