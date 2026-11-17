@@ -201,7 +201,13 @@ WaitForSomething(Bool are_ready)
             i = -1;
         else
         {
-            if (!timeout) timeout=10; /* Avoid a 100 % usage loop, timeout is in milliseconds */
+            /* XNTsrv: no longer turns a zero timeout into 10 ms.  That
+             * guarded against a busy loop when the block handler saw Windows
+             * messages it could not remove; it also made the server sit idle
+             * for a timer tick (about 15 ms) whenever clients still had work
+             * queued, halving the speed of any client that keeps it busy for
+             * more than one time slice.  winBlockHandler now guards against
+             * the busy loop itself. */
             i = ospoll_wait(server_poll, timeout);
         }
         pollerr = GetErrno();

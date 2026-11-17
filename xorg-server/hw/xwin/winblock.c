@@ -34,6 +34,9 @@
 #include "win.h"
 #include "winmsg.h"
 
+/* Set by winWakeupHandler when it stopped with Windows messages still queued. */
+extern Bool g_fWinMessagesLeft;
+
 /* See Porting Layer Definition - p. 6 */
 void
 winBlockHandler(ScreenPtr pScreen, void *pTimeout)
@@ -41,23 +44,16 @@ winBlockHandler(ScreenPtr pScreen, void *pTimeout)
     winScreenPriv(pScreen);
 
 #ifndef HAS_DEVWINDOWS
-    struct timeval **tvp = pTimeout;
+    /* XNTsrv: the wait in xserver_poll() wakes for Windows messages as well
+     * as for sockets, so there is no need to wake up every millisecond to
+     * look at the message queue.  Only when the wakeup handler left messages
+     * behind (a long burst, or a window whose WM_PAINT never validates) is
+     * the wait cut short; a millisecond rather than none, so that such a
+     * window cannot make the server spin. */
+    int *timeout = pTimeout;
 
-    if (*tvp != NULL) {
-      if (GetQueueStatus(QS_ALLINPUT | QS_ALLPOSTMESSAGE) != 0) {
-        /* If there are still messages to process on the Windows message
-           queue, make sure select() just polls rather than blocking.
-        */
-        *(int*)pTimeout = 0;
-      }
-      else {
-        /* Otherwise, lacking /dev/windows, we must wake up again in
-           a reasonable time to check the Windows message queue. without
-           noticeable delay.
-         */
-        *(int*)pTimeout = 1;
-      }
-    }
+    if (g_fWinMessagesLeft && (*timeout < 0 || *timeout > 1))
+        *timeout = 1;
 #endif
 
     /* Signal threaded modules to begin */

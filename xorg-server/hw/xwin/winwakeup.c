@@ -36,14 +36,28 @@
 #endif
 #include "win.h"
 
+/* XNTsrv: at most this many Windows messages are handled per wakeup, so
+ * that X clients are still served during a flood of them. */
+#define WIN_MESSAGES_PER_WAKEUP 64
+
+/* Set when messages were left in the queue; see winBlockHandler. */
+Bool g_fWinMessagesLeft = FALSE;
+
 /* See Porting Layer Definition - p. 7 */
 void
 winWakeupHandler(ScreenPtr pScreen, int iResult)
 {
     MSG msg;
+    int n;
 
-    /* Process one message from our queue */
-    if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+    /* XNTsrv: handle every message waiting, not one per pass.  With one per
+     * pass, a key press (WM_KEYDOWN, WM_CHAR, WM_KEYUP) needed three passes
+     * through the server's main loop.  Emptying the queue also matters to
+     * the wait in xserver_poll(), which wakes only for messages that
+     * arrived since the queue was last looked at. */
+    for (n = 0; n < WIN_MESSAGES_PER_WAKEUP; n++) {
+        if (!PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+            break;
         if ((g_hDlgDepthChange == 0
              || !IsDialogMessage(g_hDlgDepthChange, &msg))
             && (g_hDlgExit == 0 || !IsDialogMessage(g_hDlgExit, &msg))
@@ -51,4 +65,5 @@ winWakeupHandler(ScreenPtr pScreen, int iResult)
             DispatchMessage(&msg);
         }
     }
+    g_fWinMessagesLeft = n == WIN_MESSAGES_PER_WAKEUP;
 }

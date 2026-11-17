@@ -239,8 +239,95 @@ static void map_select_results
 			     Public Functions
 \*---------------------------------------------------------------------------*/
 
+#if defined(WIN32) && !defined(__CYGWIN__)
+/*
+ * XNTsrv: waiting for sockets and Windows messages together.
+ *
+ * select() can only wait for sockets, so the server used to wait in it for a
+ * millisecond at a time and look at its Windows message queue in between;
+ * Windows rounds such short waits up to its timer tick, about 15 ms, so
+ * mouse and keyboard input could wait that long.  Here the sockets are tied
+ * to an event object (WSAEventSelect), and MsgWaitForMultipleObjectsEx waits
+ * for that event and for new Windows messages at once.  select() with no
+ * timeout still decides what is ready, so the event only ever wakes the
+ * server: a stray signal costs one extra pass, never a missed socket.
+ */
+
+/* Upper bound on any one wait, as a safety net: if a wake-up were ever
+ * missed, the server would still look around this often. */
+#define XNT_MAX_WAIT_MS 100
+
+static HANDLE xnt_socket_event;
+
+/* Which socket events wake the wait, for what the server asked about. */
+static long
+xnt_network_events(short events)
+{
+    long want = 0;
+
+    if (events & (POLLIN | POLLPRI))
+        want |= FD_READ | FD_ACCEPT | FD_CLOSE | FD_OOB;
+    if (events & POLLOUT)
+        want |= FD_WRITE | FD_CONNECT | FD_CLOSE;
+    return want;
+}
+
+/* Tie every socket to the event for the events the server is waiting for,
+ * and untie those it is not waiting for at the moment (a client being
+ * ignored, say), so that they cannot keep waking it.  Done before each
+ * wait, since sockets come and go between waits and a closed socket's
+ * number can be reused.  False if a socket cannot be watched. */
+static int
+xnt_watch_sockets(struct pollfd *pArray, unsigned long n_fds)
+{
+    unsigned long i;
+
+    for (i = 0; i < n_fds; i++) {
+        if (pArray[i].fd < 0)
+            continue;
+        if (WSAEventSelect((SOCKET) pArray[i].fd, xnt_socket_event,
+                           xnt_network_events(pArray[i].events)) != 0)
+            return 0;
+    }
+    return 1;
+}
+
+static int xnt_select(struct pollfd *pArray, unsigned long n_fds, int timeout);
+
 int xserver_poll
 	(struct pollfd *pArray, unsigned long n_fds, int timeout)
+{
+    int ready;
+    DWORD wait;
+
+    /* Anything ready already, or not to wait at all: a plain look. */
+    ready = xnt_select(pArray, n_fds, 0);
+    if (ready != 0 || timeout == 0)
+        return ready;
+
+    if (!xnt_socket_event)
+        xnt_socket_event = CreateEvent(NULL, TRUE, FALSE, NULL);
+    if (!xnt_socket_event || !xnt_watch_sockets(pArray, n_fds))
+        return xnt_select(pArray, n_fds, timeout); /* the old way */
+    ResetEvent(xnt_socket_event);
+
+    /* Look once more: something may have arrived before the sockets were
+     * being watched. */
+    ready = xnt_select(pArray, n_fds, 0);
+    if (ready != 0)
+        return ready;
+
+    wait = timeout < 0 || timeout > XNT_MAX_WAIT_MS ? XNT_MAX_WAIT_MS : (DWORD) timeout;
+    MsgWaitForMultipleObjectsEx(1, &xnt_socket_event, wait, QS_ALLINPUT, 0);
+    return xnt_select(pArray, n_fds, 0);
+}
+
+static int xnt_select
+	(struct pollfd *pArray, unsigned long n_fds, int timeout)
+#else
+int xserver_poll
+	(struct pollfd *pArray, unsigned long n_fds, int timeout)
+#endif
 {
     fd_set  read_descs;                          /* input file descs */
     fd_set  write_descs;                         /* output file descs */
