@@ -463,12 +463,15 @@ static AudioPlan PlanAudio(const Options &o)
     p.stateDir = data + L"\\audio";
     p.cookiePath = data + L"\\pulse-cookie";
     p.scriptPath = p.stateDir + L"\\xntsrv.pa";
-    /* Windows' default playback and recording devices, falling back to a
-     * silent output on a computer with no sound device (the server would not
-     * start otherwise), and the native protocol on loopback only. */
+    /* Windows' default playback and recording devices, each on its own so
+     * that a computer without a microphone still plays (one module opening
+     * both fails when either is missing); a silent output on a computer with
+     * no sound device at all, since the server would not start otherwise; and
+     * the native protocol on loopback only. */
     p.script = L"# Written by xntsrv.exe at every start; changes are lost.\n"
                L".nofail\n"
-               L"load-module module-waveout sink_name=windows source_name=windows_input\n"
+               L"load-module module-waveout sink_name=windows record=0\n"
+               L"load-module module-waveout source_name=windows_input playback=0\n"
                L".fail\n"
                L"load-module module-always-sink\n"
                L"load-module module-native-protocol-tcp listen=127.0.0.1 port=" +
