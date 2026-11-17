@@ -114,10 +114,26 @@ static void Relay(SOCKET a, SOCKET b)
         HeapFree(GetProcessHeap(), 0, buf);
 }
 
+/* Send each write at once rather than holding small ones back (Nagle's
+ * algorithm).  X sends many small messages: held back, an event such as an
+ * Expose waits for the other side's delayed acknowledgement, 40 ms on Linux,
+ * and every menu or popup feels it.  Only TCP has this; the Hyper-V and
+ * VMware sockets do not. */
+static void SendAtOnce(SOCKET s)
+{
+    sockaddr_storage addr = {};
+    int len = sizeof addr;
+    if (getsockname(s, (sockaddr *)&addr, &len) != 0 || (addr.ss_family != AF_INET && addr.ss_family != AF_INET6))
+        return;
+    int on = 1;
+    setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char *)&on, sizeof on);
+}
+
 /* Thread: connect an accepted client to the X server and relay. */
 static DWORD WINAPI Connection(LPVOID param)
 {
     SOCKET client = (SOCKET)(UINT_PTR)param;
+    SendAtOnce(client);
 
     /* Display :0 for now; choosing a display per user comes with multi-user support. */
     sockaddr_in addr = {};
@@ -127,8 +143,7 @@ static DWORD WINAPI Connection(LPVOID param)
 
     SOCKET server = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (server != INVALID_SOCKET && connect(server, (sockaddr *)&addr, sizeof addr) == 0) {
-        int on = 1;
-        setsockopt(server, IPPROTO_TCP, TCP_NODELAY, (const char *)&on, sizeof on);
+        SendAtOnce(server);
         Log(L"connection accepted, relaying to the X server");
         Relay(client, server);
         Log(L"connection closed");
