@@ -3,7 +3,9 @@ name: server
 # Builds the X server from source and packages it with upstream's installer
 # script.  Takes about 20 minutes, so it runs only when the server's sources or
 # the build recipe change, or when started by hand.  The windows workflow picks
-# up the package from the latest successful run.
+# up the package from the latest successful run on the same branch, or on
+# master.  For a pull request, the installer is built again once the server
+# is, so that it carries the pull request's server.
 on:
   workflow_dispatch:
   push:
@@ -15,13 +17,21 @@ on:
       - '!TODO.md'
       - 'xntsrv/build/**'
       - '.github/workflows/server.yml'
+  pull_request:
+    paths:
+      - '**'
+      - '!xntsrv/**'
+      - '!.github/**'
+      - '!TODO.md'
+      - 'xntsrv/build/**'
+      - '.github/workflows/server.yml'
 
 permissions:
   contents: read
 
-# A newer push makes an older build pointless.
+# A newer push to the same branch makes an older build pointless.
 concurrency:
-  group: server
+  group: server-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -122,3 +132,17 @@ jobs:
           path: xorg-server/installer/vcxsrv-64.*.installer.exe
           if-no-files-found: error
           retention-days: 90
+
+  # The installer built when the pull request was pushed used master's
+  # server, since this one was not ready; build it again with this one.
+  installer:
+    needs: build
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Start the windows workflow on this branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run windows.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_HEAD_REF"

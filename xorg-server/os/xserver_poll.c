@@ -239,8 +239,90 @@ static void map_select_results
 			     Public Functions
 \*---------------------------------------------------------------------------*/
 
+#if defined(WIN32) && !defined(__CYGWIN__)
+/*
+ * XNTsrv: waiting for sockets and Windows messages together.
+ *
+ * select() can only wait for sockets, so the server used to wait in it for a
+ * millisecond at a time and look at its Windows message queue in between;
+ * Windows rounds such short waits up to its timer tick, about 15 ms, so
+ * mouse and keyboard input could wait that long.  Here every socket the
+ * server polls is tied to one event object (WSAEventSelect), for just the
+ * events it is waiting for, and MsgWaitForMultipleObjectsEx waits for that
+ * event and for new Windows messages at once.  select() with no timeout
+ * still decides what is ready, so the event only ever wakes the server: a
+ * stray signal costs one extra pass, never a missed socket.
+ *
+ * The ties are made by ospoll when the server starts or stops waiting on a
+ * socket (xserver_poll_watch), not before every wait: WSAEventSelect is a
+ * slow call, and the server waits hundreds of times a second while a large
+ * request arrives in pieces.
+ */
+
+/* Upper bound on any one wait, as a safety net: if a wake-up were ever
+ * missed, the server would still look around this often. */
+#define XNT_MAX_WAIT_MS 100
+
+static HANDLE xnt_socket_event;
+static int xnt_watch_failed;    /* a socket could not be tied: wait the old way */
+
+void
+xserver_poll_watch(int fd, short events)
+{
+    long want = 0;
+
+    if (fd < 0)
+        return;
+    if (!xnt_socket_event)
+        xnt_socket_event = CreateEvent(NULL, TRUE, FALSE, NULL);
+    if (!xnt_socket_event) {
+        xnt_watch_failed = 1;
+        return;
+    }
+    if (events & (POLLIN | POLLPRI))
+        want |= FD_READ | FD_ACCEPT | FD_CLOSE | FD_OOB;
+    if (events & POLLOUT)
+        want |= FD_WRITE | FD_CONNECT | FD_CLOSE;
+    /* With no events this unties the socket: one the server is ignoring for
+     * now cannot keep waking it.  Failing to untie a socket that has just
+     * been closed does no harm. */
+    if (WSAEventSelect((SOCKET) fd, xnt_socket_event, want) != 0 && want)
+        xnt_watch_failed = 1;
+}
+
+static int xnt_select(struct pollfd *pArray, unsigned long n_fds, int timeout);
+
 int xserver_poll
 	(struct pollfd *pArray, unsigned long n_fds, int timeout)
+{
+    int ready;
+    DWORD wait;
+
+    if (timeout == 0)
+        return xnt_select(pArray, n_fds, 0);
+    /* The old way, if the sockets are not all watched: wait in select() a
+     * millisecond at a time, so that Windows messages are still seen. */
+    if (!xnt_socket_event || xnt_watch_failed)
+        return xnt_select(pArray, n_fds, timeout < 0 || timeout > 1 ? 1 : timeout);
+
+    /* Cleared before looking, so that anything arriving from now on either
+     * shows in this look or sets the event. */
+    ResetEvent(xnt_socket_event);
+    ready = xnt_select(pArray, n_fds, 0);
+    if (ready != 0)
+        return ready;
+
+    wait = timeout < 0 || timeout > XNT_MAX_WAIT_MS ? XNT_MAX_WAIT_MS : (DWORD) timeout;
+    MsgWaitForMultipleObjectsEx(1, &xnt_socket_event, wait, QS_ALLINPUT, 0);
+    return xnt_select(pArray, n_fds, 0);
+}
+
+static int xnt_select
+	(struct pollfd *pArray, unsigned long n_fds, int timeout)
+#else
+int xserver_poll
+	(struct pollfd *pArray, unsigned long n_fds, int timeout)
+#endif
 {
     fd_set  read_descs;                          /* input file descs */
     fd_set  write_descs;                         /* output file descs */
