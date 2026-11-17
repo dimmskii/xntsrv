@@ -50,6 +50,12 @@ typedef unsigned long nfds_t;
 
 int xserver_poll (struct pollfd *pArray, nfds_t n_fds, int timeout);
 
+#if defined(WIN32) && !defined(__CYGWIN__)
+/* XNTsrv: tell the Windows wait which events the server now waits for on
+ * this socket (0 for none).  Called by ospoll. */
+void xserver_poll_watch(int fd, short events);
+#endif
+
 #endif
 
 #endif /* _XSERVER_POLL_H_ */

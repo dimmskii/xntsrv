@@ -246,11 +246,17 @@ static void map_select_results
  * select() can only wait for sockets, so the server used to wait in it for a
  * millisecond at a time and look at its Windows message queue in between;
  * Windows rounds such short waits up to its timer tick, about 15 ms, so
- * mouse and keyboard input could wait that long.  Here the sockets are tied
- * to an event object (WSAEventSelect), and MsgWaitForMultipleObjectsEx waits
- * for that event and for new Windows messages at once.  select() with no
- * timeout still decides what is ready, so the event only ever wakes the
- * server: a stray signal costs one extra pass, never a missed socket.
+ * mouse and keyboard input could wait that long.  Here every socket the
+ * server polls is tied to one event object (WSAEventSelect), for just the
+ * events it is waiting for, and MsgWaitForMultipleObjectsEx waits for that
+ * event and for new Windows messages at once.  select() with no timeout
+ * still decides what is ready, so the event only ever wakes the server: a
+ * stray signal costs one extra pass, never a missed socket.
+ *
+ * The ties are made by ospoll when the server starts or stops waiting on a
+ * socket (xserver_poll_watch), not before every wait: WSAEventSelect is a
+ * slow call, and the server waits hundreds of times a second while a large
+ * request arrives in pieces.
  */
 
 /* Upper bound on any one wait, as a safety net: if a wake-up were ever
@@ -258,38 +264,30 @@ static void map_select_results
 #define XNT_MAX_WAIT_MS 100
 
 static HANDLE xnt_socket_event;
+static int xnt_watch_failed;    /* a socket could not be tied: wait the old way */
 
-/* Which socket events wake the wait, for what the server asked about. */
-static long
-xnt_network_events(short events)
+void
+xserver_poll_watch(int fd, short events)
 {
     long want = 0;
 
+    if (fd < 0)
+        return;
+    if (!xnt_socket_event)
+        xnt_socket_event = CreateEvent(NULL, TRUE, FALSE, NULL);
+    if (!xnt_socket_event) {
+        xnt_watch_failed = 1;
+        return;
+    }
     if (events & (POLLIN | POLLPRI))
         want |= FD_READ | FD_ACCEPT | FD_CLOSE | FD_OOB;
     if (events & POLLOUT)
         want |= FD_WRITE | FD_CONNECT | FD_CLOSE;
-    return want;
-}
-
-/* Tie every socket to the event for the events the server is waiting for,
- * and untie those it is not waiting for at the moment (a client being
- * ignored, say), so that they cannot keep waking it.  Done before each
- * wait, since sockets come and go between waits and a closed socket's
- * number can be reused.  False if a socket cannot be watched. */
-static int
-xnt_watch_sockets(struct pollfd *pArray, unsigned long n_fds)
-{
-    unsigned long i;
-
-    for (i = 0; i < n_fds; i++) {
-        if (pArray[i].fd < 0)
-            continue;
-        if (WSAEventSelect((SOCKET) pArray[i].fd, xnt_socket_event,
-                           xnt_network_events(pArray[i].events)) != 0)
-            return 0;
-    }
-    return 1;
+    /* With no events this unties the socket: one the server is ignoring for
+     * now cannot keep waking it.  Failing to untie a socket that has just
+     * been closed does no harm. */
+    if (WSAEventSelect((SOCKET) fd, xnt_socket_event, want) != 0 && want)
+        xnt_watch_failed = 1;
 }
 
 static int xnt_select(struct pollfd *pArray, unsigned long n_fds, int timeout);
@@ -300,19 +298,16 @@ int xserver_poll
     int ready;
     DWORD wait;
 
-    /* Anything ready already, or not to wait at all: a plain look. */
-    ready = xnt_select(pArray, n_fds, 0);
-    if (ready != 0 || timeout == 0)
-        return ready;
+    if (timeout == 0)
+        return xnt_select(pArray, n_fds, 0);
+    /* The old way, if the sockets are not all watched: wait in select() a
+     * millisecond at a time, so that Windows messages are still seen. */
+    if (!xnt_socket_event || xnt_watch_failed)
+        return xnt_select(pArray, n_fds, timeout < 0 || timeout > 1 ? 1 : timeout);
 
-    if (!xnt_socket_event)
-        xnt_socket_event = CreateEvent(NULL, TRUE, FALSE, NULL);
-    if (!xnt_socket_event || !xnt_watch_sockets(pArray, n_fds))
-        return xnt_select(pArray, n_fds, timeout); /* the old way */
+    /* Cleared before looking, so that anything arriving from now on either
+     * shows in this look or sets the event. */
     ResetEvent(xnt_socket_event);
-
-    /* Look once more: something may have arrived before the sockets were
-     * being watched. */
     ready = xnt_select(pArray, n_fds, 0);
     if (ready != 0)
         return ready;

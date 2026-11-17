@@ -103,6 +103,12 @@ struct ospoll {
 
 #if POLL
 
+/* XNTsrv: on Windows, the wait in xserver_poll.c is told which events the
+ * server waits for on each socket as they change. */
+#if defined(WIN32) && !defined(__CYGWIN__)
+#define XNT_POLL_WATCH 1
+#endif
+
 /* poll-based implementation */
 struct ospollfd {
     short               revents;
@@ -408,6 +414,10 @@ ospoll_add(struct ospoll *ospoll, int fd,
         ospoll->fds[pos].events = 0;
         ospoll->fds[pos].revents = 0;
         ospoll->osfds[pos].revents = 0;
+#ifdef XNT_POLL_WATCH
+        /* Accepted sockets inherit the listener's events; start from none. */
+        xserver_poll_watch(fd, 0);
+#endif
     }
     ospoll->osfds[pos].trigger = trigger;
     ospoll->osfds[pos].callback = callback;
@@ -455,6 +465,9 @@ ospoll_remove(struct ospoll *ospoll, int fd)
         xorg_list_add(&osfd->deleted, &ospoll->deleted);
 #endif
 #if POLL
+#ifdef XNT_POLL_WATCH
+        xserver_poll_watch(fd, 0);
+#endif
         array_delete(ospoll->fds, ospoll->num, sizeof (ospoll->fds[0]), pos);
         array_delete(ospoll->osfds, ospoll->num, sizeof (ospoll->osfds[0]), pos);
         ospoll->num--;
@@ -518,6 +531,9 @@ ospoll_listen(struct ospoll *ospoll, int fd, int xevents)
         epoll_mod(ospoll, osfd);
 #endif
 #if POLL
+#ifdef XNT_POLL_WATCH
+        short xnt_before = ospoll->fds[pos].events;
+#endif
         if (xevents & X_NOTIFY_READ) {
             ospoll->fds[pos].events |= POLLIN;
             ospoll->osfds[pos].revents &= ~POLLIN;
@@ -526,6 +542,10 @@ ospoll_listen(struct ospoll *ospoll, int fd, int xevents)
             ospoll->fds[pos].events |= POLLOUT;
             ospoll->osfds[pos].revents &= ~POLLOUT;
         }
+#ifdef XNT_POLL_WATCH
+        if (ospoll->fds[pos].events != xnt_before)
+            xserver_poll_watch(fd, ospoll->fds[pos].events);
+#endif
 #endif
     }
 }
@@ -558,10 +578,17 @@ ospoll_mute(struct ospoll *ospoll, int fd, int xevents)
         epoll_mod(ospoll, osfd);
 #endif
 #if POLL
+#ifdef XNT_POLL_WATCH
+        short xnt_before = ospoll->fds[pos].events;
+#endif
         if (xevents & X_NOTIFY_READ)
             ospoll->fds[pos].events &= ~POLLIN;
         if (xevents & X_NOTIFY_WRITE)
             ospoll->fds[pos].events &= ~POLLOUT;
+#ifdef XNT_POLL_WATCH
+        if (ospoll->fds[pos].events != xnt_before)
+            xserver_poll_watch(fd, ospoll->fds[pos].events);
+#endif
 #endif
     }
 }
