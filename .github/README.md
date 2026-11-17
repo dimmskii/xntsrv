@@ -147,6 +147,7 @@ Remove **XNTsrv** in Windows Settings under Apps. That closes the running server
 | `xntsrv/tools/` | The services and the `xntsrv-register`, `xntsrv-unregister` and `xntsrv-reset` tools. |
 | `xntsrv/installer/` | The NSIS installer and the script that stages its contents. |
 | `xntsrv/bridge/` | The Linux bridge and its install, update and uninstall scripts. |
+| `xntsrv/bench/` | `xbench.py`, which measures how quickly the X server answers from inside a guest: connections, round trips, popups and image transfer. Python's standard library only. |
 | `xntsrv/build/` | The recipe for building the X server from source, and the script that renames it to XNTsrv at build time. |
 | everything else | The VcXsrv source tree, kept identical to upstream wherever possible. |
 

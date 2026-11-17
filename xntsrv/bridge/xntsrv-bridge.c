@@ -23,6 +23,8 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <linux/vm_sockets.h>
 
 #define DEFAULT_MAPPING "/tmp/.X11-unix/X0=vsock:2:106000"
@@ -118,6 +120,12 @@ static int connect_target(const char *t)
         for (ai = res; ai; ai = ai->ai_next) {
             fd = socket(ai->ai_family, ai->ai_socktype | SOCK_CLOEXEC, 0);
             if (fd >= 0 && connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) {
+                /* Send each write at once: X sends many small messages, and
+                 * Nagle's algorithm would hold some back until the server
+                 * acknowledges the previous ones, which Windows may delay. */
+                int on = 1;
+
+                setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof on);
                 freeaddrinfo(res);
                 return fd;
             }
