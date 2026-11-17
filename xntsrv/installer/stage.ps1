@@ -1,4 +1,8 @@
-# Assembles the folder the installer packages.
+# Assembles the folders the installer packages, one per component:
+#
+#   core\    the X server, the XNTsrv programs and the GTK themes
+#   audio\   PulseAudio, started with the X server (installed as audio\)
+#   guest\   the Linux-side bridge (installed as guest\)
 #
 # The X server comes as an installer made by upstream's own NSIS script:
 # either one built from this repository by the server workflow
@@ -20,9 +24,17 @@ $UpstreamVersion = '21.1.16.1'
 $UpstreamUrl = "https://github.com/marchaesen/vcxsrv/releases/download/$UpstreamVersion/vcxsrv-64.$UpstreamVersion.installer.exe"
 $UpstreamSha256 = 'df7fed8f49665d0592528ab6be9d07111ea73c6848283d128b77690e05b8f90b'
 
+# PulseAudio for Windows, built by the pulseaudio-win32 project.
+$AudioRelease = 'v5'
+$AudioUrl = "https://github.com/pgaskin/pulseaudio-win32/releases/download/$AudioRelease/pulseaudio.zip"
+$AudioSha256 = '13b54a7fd79e96b06bcaba4443bdafd6a5093cf0354e9cf7fdcf765c6c7aa946'
+
 if (Test-Path $OutDir) { Remove-Item -Recurse -Force $OutDir }
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 $OutDir = (Resolve-Path $OutDir).Path
+$Root = $OutDir
+$OutDir = Join-Path $Root 'core'
+New-Item -ItemType Directory -Force $OutDir | Out-Null
 
 if ($ServerPackage) {
     $download = (Resolve-Path $ServerPackage).Path
@@ -73,8 +85,23 @@ foreach ($name in 'xntsrv', 'xntsrvw', 'xntsrv-appearance', 'xntsrv-service', 'x
 Copy-Item -Recurse (Join-Path $PSScriptRoot '..\appearance\theme') (Join-Path $OutDir 'theme')
 
 # The Linux-side forwarder, to be copied into the guest from /mnt/c.
-New-Item -ItemType Directory -Force (Join-Path $OutDir 'guest') | Out-Null
-Copy-Item $Bridge (Join-Path $OutDir 'guest\xntsrv-bridge')
+New-Item -ItemType Directory -Force (Join-Path $Root 'guest') | Out-Null
+Copy-Item $Bridge (Join-Path $Root 'guest\xntsrv-bridge')
+
+# The audio server: only its programs and modules.  XNTsrv's launcher gives
+# it its whole configuration, so the sample configuration is left out.
+$zip = Join-Path ([IO.Path]::GetTempPath()) "pulseaudio-win32-$AudioRelease.zip"
+Invoke-WebRequest -Uri $AudioUrl -OutFile $zip
+$actual = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
+if ($actual -ne $AudioSha256) {
+    throw "PulseAudio download checksum mismatch: got $actual, expected $AudioSha256"
+}
+$unpacked = Join-Path ([IO.Path]::GetTempPath()) "pulseaudio-win32-$AudioRelease"
+if (Test-Path $unpacked) { Remove-Item -Recurse -Force $unpacked }
+Expand-Archive -Path $zip -DestinationPath $unpacked
+New-Item -ItemType Directory -Force (Join-Path $Root 'audio') | Out-Null
+Copy-Item -Recurse (Join-Path $unpacked 'pulseaudio\bin') (Join-Path $Root 'audio\bin')
+if (-not (Test-Path (Join-Path $Root 'audio\bin\pulseaudio.exe'))) { throw 'The PulseAudio download contains no pulseaudio.exe' }
 
 @"
 XNTsrv
@@ -86,6 +113,14 @@ licences.
 
 The xntsrv*.exe programs and guest\xntsrv-bridge are part of XNTsrv and are
 MIT licensed. Their source code is in the repository above.
+
+audio\ (when installed) is PulseAudio 15.0 as built for Windows by the
+pulseaudio-win32 project, release $AudioRelease, unmodified:
+  $AudioUrl
+PulseAudio is licensed under the GNU LGPL version 2.1 or later; its source
+code is at https://gitlab.freedesktop.org/pulseaudio/pulseaudio (tag v15.0),
+and the build recipe at https://github.com/pgaskin/pulseaudio-win32. The
+libraries it comes with keep their own licences (LGPL, BSD and MIT family).
 "@ | Set-Content -Encoding utf8 (Join-Path $OutDir 'NOTICE.txt')
 
-Write-Output "Staged in $OutDir"
+Write-Output "Staged in $Root (core, audio, guest)"

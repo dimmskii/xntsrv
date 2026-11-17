@@ -1,8 +1,15 @@
 ; XNTsrv installer.
 ;
-; Copies a staged folder (see stage.ps1) to Program Files and hands the
-; machine-wide setup to xntsrv-register; the uninstaller calls
+; Copies the staged components (see stage.ps1) to Program Files and hands
+; the machine-wide setup to xntsrv-register; the uninstaller calls
 ; xntsrv-unregister.  All setup logic lives in those tools, not here.
+;
+; Components: XNTsrv itself (always), audio, files for Linux guests, and the
+; Start menu shortcut.  An upgrade offers the previous install's choices.
+; Silent installs take them from the command line:
+;   setup.exe /S [/NOAUDIO|/AUDIO] [/NOGUEST|/GUEST] [/NOSHORTCUT|/SHORTCUT]
+; Without them, an upgrade keeps the previous choices and a new install takes
+; everything.
 ;
 ; Build:  makensis /DVERSION=x.y.z /DSTAGE=<staged folder> /DOUTFILE=<setup.exe> xntsrv.nsi
 ;
@@ -10,6 +17,8 @@
 
 Unicode true
 !include "LogicLib.nsh"
+!include "Sections.nsh"
+!include "FileFunc.nsh"
 
 !ifndef VERSION
   !error "pass /DVERSION=x.y.z"
@@ -23,6 +32,9 @@ Unicode true
 
 !define PUBLISHER "Dmitri Poterianski"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\XNTsrv"
+; Which components are installed, one DWORD each (1 or 0).  Under the key
+; xntsrv-register writes, so xntsrv-unregister removes it too.
+!define COMPKEY "SOFTWARE\XNTsrv\Components"
 ; Upstream's own icon and licence text, used as they are.
 !define ICON "..\..\xorg-server\hw\xwin\X.ico"
 !define LICENCE "..\..\COPYING"
@@ -45,35 +57,95 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 VIAddVersionKey "CompanyName" "${PUBLISHER}"
 VIAddVersionKey "LegalCopyright" "${PUBLISHER}; includes VcXsrv, see NOTICE.txt"
 
+InstType "Full"
+InstType "Minimal"
+
 Page license
+Page components
 Page directory
 Page instfiles
 
 UninstPage uninstConfirm
 UninstPage instfiles
 
-Function .onInit
-  ; Upgrade in place: reuse the folder a previous install registered.
-  SetRegView 64
-  ReadRegStr $0 HKLM "SOFTWARE\XNTsrv" "InstallDir"
-  ${If} $0 != ""
-    StrCpy $INSTDIR $0
-  ${EndIf}
-FunctionEnd
+; ---- remembering the choice ------------------------------------------
 
-Section "XNTsrv"
+!macro RememberComponent SECTION NAME
+  ${If} ${SectionIsSelected} ${SECTION}
+    WriteRegDWORD HKLM "${COMPKEY}" "${NAME}" 1
+  ${Else}
+    WriteRegDWORD HKLM "${COMPKEY}" "${NAME}" 0
+  ${EndIf}
+!macroend
+
+; Unselect SECTION if the previous install left it out (value 0); then the
+; command line ($2) decides: /NO<OPTION> leaves it out, /<OPTION> puts it in.
+!macro ChooseComponent SECTION NAME OPTION
+  ClearErrors
+  ReadRegDWORD $1 HKLM "${COMPKEY}" "${NAME}"
+  ${IfNot} ${Errors}
+  ${AndIf} $1 == 0
+    !insertmacro UnselectSection ${SECTION}
+  ${EndIf}
+  ClearErrors
+  ${GetOptions} $2 "/NO${OPTION}" $1
+  ${IfNot} ${Errors}
+    !insertmacro UnselectSection ${SECTION}
+  ${EndIf}
+  ClearErrors
+  ${GetOptions} $2 "/${OPTION}" $1
+  ${IfNot} ${Errors}
+    !insertmacro SelectSection ${SECTION}
+  ${EndIf}
+!macroend
+
+; ---- components ------------------------------------------------------
+
+Section "XNTsrv" SecCore
+  SectionIn RO 1 2
   SetRegView 64
   SetShellVarContext all
 
-  ; Stop a previous install's services so their files can be replaced.
+  ; Stop a previous install's services and programs so their files can be
+  ; replaced.  Its component registry key goes with them, and was read in
+  ; .onInit already.
   ${If} ${FileExists} "$INSTDIR\xntsrv-unregister.exe"
     nsExec::ExecToLog '"$INSTDIR\xntsrv-unregister.exe"'
     Pop $0
   ${EndIf}
 
+  ; Remove the optional components; the sections below put back the chosen ones.
+  RMDir /r "$INSTDIR\audio"
+  RMDir /r "$INSTDIR\guest"
+  Delete "$SMPROGRAMS\XNTsrv.lnk"
+
   SetOutPath "$INSTDIR"
-  File /r "${STAGE}\*.*"
+  File /r "${STAGE}\core\*.*"
   WriteUninstaller "$INSTDIR\uninstall.exe"
+SectionEnd
+
+Section "Audio" SecAudio
+  SectionIn 1
+  SetOutPath "$INSTDIR\audio"
+  File /r "${STAGE}\audio\*.*"
+SectionEnd
+
+Section "Files for Linux guests" SecGuest
+  SectionIn 1
+  SetOutPath "$INSTDIR\guest"
+  File /r "${STAGE}\guest\*.*"
+SectionEnd
+
+Section "Start menu shortcut" SecShortcut
+  SectionIn 1 2
+  SetShellVarContext all
+  CreateShortCut "$SMPROGRAMS\XNTsrv.lnk" "$INSTDIR\xntsrvw.exe" "" "$INSTDIR\xntsrv-server.exe" 0
+SectionEnd
+
+; Last, once every chosen component's files are in place.
+Section "-Register"
+  SetRegView 64
+  SetOutPath "$INSTDIR"
 
   nsExec::ExecToLog '"$INSTDIR\xntsrv-register.exe"'
   Pop $0
@@ -82,6 +154,10 @@ Section "XNTsrv"
     SetErrorLevel 1
     Abort
   ${EndIf}
+
+  !insertmacro RememberComponent ${SecAudio} "Audio"
+  !insertmacro RememberComponent ${SecGuest} "Guest"
+  !insertmacro RememberComponent ${SecShortcut} "Shortcut"
 
   WriteRegStr HKLM "${UNINSTKEY}" "DisplayName" "XNTsrv"
   WriteRegStr HKLM "${UNINSTKEY}" "DisplayVersion" "${VERSION}"
@@ -93,9 +169,21 @@ Section "XNTsrv"
   WriteRegStr HKLM "${UNINSTKEY}" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'
   WriteRegDWORD HKLM "${UNINSTKEY}" "NoModify" 1
   WriteRegDWORD HKLM "${UNINSTKEY}" "NoRepair" 1
-
-  CreateShortCut "$SMPROGRAMS\XNTsrv.lnk" "$INSTDIR\xntsrvw.exe" "" "$INSTDIR\xntsrv-server.exe" 0
 SectionEnd
+
+Function .onInit
+  ; Upgrade in place: reuse the folder a previous install registered, and
+  ; offer the components it had.
+  SetRegView 64
+  ReadRegStr $0 HKLM "SOFTWARE\XNTsrv" "InstallDir"
+  ${If} $0 != ""
+    StrCpy $INSTDIR $0
+  ${EndIf}
+  ${GetParameters} $2
+  !insertmacro ChooseComponent ${SecAudio} "Audio" "AUDIO"
+  !insertmacro ChooseComponent ${SecGuest} "Guest" "GUEST"
+  !insertmacro ChooseComponent ${SecShortcut} "Shortcut" "SHORTCUT"
+FunctionEnd
 
 Section "Uninstall"
   SetRegView 64
