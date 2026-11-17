@@ -15,8 +15,11 @@ remote X display feel quick or slow:
             the top-left corner of the screen.
   putimage  sending full-HD images to an off-screen pixmap, as programs that
             draw in software (or render with the GPU in the guest) do
+  burst     filling a full-HD pixmap 50 and then 400 times, sent in one go.
+            Per fill, the two should cost the same; if the larger batch costs
+            more, the server idles between its time slices.
 
-  xbench.py [--display=D] [--tests=connect,roundtrip,pair,popup,putimage]
+  xbench.py [--display=D] [--tests=connect,roundtrip,pair,popup,putimage,burst]
 
 D is an X display name (":0", "host:0") or a raw target ("unix:PATH",
 "tcp:HOST:PORT"); the default is $DISPLAY.  The authentication cookie is
@@ -32,7 +35,7 @@ import struct
 import sys
 import time
 
-ALL_TESTS = ["connect", "roundtrip", "pair", "popup", "putimage"]
+ALL_TESTS = ["connect", "roundtrip", "pair", "popup", "putimage", "burst"]
 NOTES = []  # lines printed after the table
 
 
@@ -215,6 +218,30 @@ def test_putimage(c):
     NOTES.append("putimage: %.1f full-HD frames a second, %.0f MB/s" % (1000 / statistics.median(times),
                                                                         mb * 1000 / statistics.median(times)))
     return [("putimage: one frame", times)]
+
+
+def test_burst(c):
+    width, height = 1920, 1080
+    pixmap, gc = c.new_id(), c.new_id()
+    c.send(struct.pack("<BBHIIHH", 53, 24, 4, pixmap, c.root, width, height))  # CreatePixmap
+    c.send(struct.pack("<BxHIII", 55, 4, gc, pixmap, 0))  # CreateGC
+    fill = struct.pack("<BxHII", 70, 5, pixmap, gc) + struct.pack("<hhHH", 0, 0, width, height)  # PolyFillRectangle
+    c.sync()
+    results = []
+    for count in (50, 400):
+        per_fill = []
+        for _ in range(5):
+            t = time.perf_counter()
+            c.send(fill * count)
+            c.sync()
+            per_fill.append(ms(time.perf_counter() - t) / count)
+        results.append(("burst: %d, per fill" % count, per_fill))
+    c.send(struct.pack("<BxHI", 60, 2, gc) + struct.pack("<BxHI", 54, 2, pixmap))  # FreeGC, FreePixmap
+    c.sync()
+    small, large = statistics.median(results[0][1]), statistics.median(results[1][1])
+    NOTES.append("burst: a long batch costs %.1f times as much per fill as a short one%s" % (
+        large / small, " (the server idles between time slices)" if large > 1.5 * small else ""))
+    return results
 
 
 def main():
