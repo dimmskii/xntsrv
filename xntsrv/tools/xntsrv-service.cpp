@@ -8,6 +8,10 @@
  * relays the bytes to the server; it does not interpret them, so X
  * authentication still happens between the client and the server.
  *
+ * Each route carries the channels in xnt::kChannels: X, and the audio server
+ * started with it.  The TCP route carries audio only when HKLM\SOFTWARE\
+ * XNTsrv\TCP\Audio is 1, since the microphone is behind it.
+ *
  *   wsl      Listens on the Hyper-V socket of the running WSL virtual machine.
  *            Finding that VM needs administrator rights, which is why this is
  *            a service.  It follows WSL restarts by listening on the new VM.
@@ -129,28 +133,42 @@ static void SendAtOnce(SOCKET s)
     setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char *)&on, sizeof on);
 }
 
-/* Thread: connect an accepted client to the X server and relay. */
+/* A listening socket and the channel its connections belong to. */
+struct Listener {
+    SOCKET socket;
+    const xnt::Channel *channel;
+};
+
+struct Accepted {
+    SOCKET client;
+    const xnt::Channel *channel;
+};
+
+/* Thread: connect an accepted client to its channel's local port and relay. */
 static DWORD WINAPI Connection(LPVOID param)
 {
-    SOCKET client = (SOCKET)(UINT_PTR)param;
+    Accepted *accepted = (Accepted *)param;
+    SOCKET client = accepted->client;
+    const xnt::Channel &channel = *accepted->channel;
+    delete accepted;
     SendAtOnce(client);
 
-    /* Display :0 for now; choosing a display per user comes with multi-user support. */
     sockaddr_in addr = {};
     addr.sin_family = AF_INET;
-    addr.sin_port = htons((u_short)xnt::kXBasePort);
+    addr.sin_port = htons((u_short)channel.localPort);
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    std::wstring where = std::wstring(channel.name) + L" (127.0.0.1:" + std::to_wstring(channel.localPort) + L")";
 
     SOCKET server = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (server != INVALID_SOCKET && connect(server, (sockaddr *)&addr, sizeof addr) == 0) {
         SendAtOnce(server);
-        Log(L"connection accepted, relaying to the X server");
+        Log(L"connection accepted, relaying to " + where);
         Relay(client, server);
-        Log(L"connection closed");
+        Log(L"connection to " + where + L" closed");
     } else {
-        Log(L"connection accepted, but no X server answers on 127.0.0.1:" + std::to_wstring(xnt::kXBasePort));
+        Log(L"connection accepted, but nothing answers for " + where);
     }
-    /* If no X server is running, the client simply sees the connection close. */
+    /* If no server is running, the client simply sees the connection close. */
     if (server != INVALID_SOCKET)
         closesocket(server);
     closesocket(client);
@@ -159,7 +177,7 @@ static DWORD WINAPI Connection(LPVOID param)
 
 /* Accept on the given listeners for a few seconds, handing each connection to
  * its own thread.  Returns false if a listener failed and should be rebuilt. */
-static bool AcceptFor(const std::vector<SOCKET> &listeners, DWORD milliseconds)
+static bool AcceptFor(const std::vector<Listener> &listeners, DWORD milliseconds)
 {
     ULONGLONG until = GetTickCount64() + milliseconds;
 
@@ -167,38 +185,48 @@ static bool AcceptFor(const std::vector<SOCKET> &listeners, DWORD milliseconds)
         fd_set readable;
         timeval wait = { 0, 500000 };
         FD_ZERO(&readable);
-        for (SOCKET s : listeners)
-            FD_SET(s, &readable);
+        for (const Listener &l : listeners)
+            FD_SET(l.socket, &readable);
         if (select(0, &readable, NULL, NULL, &wait) <= 0)
             continue;
-        for (SOCKET s : listeners) {
-            if (!FD_ISSET(s, &readable))
+        for (const Listener &l : listeners) {
+            if (!FD_ISSET(l.socket, &readable))
                 continue;
-            SOCKET client = accept(s, NULL, NULL);
+            SOCKET client = accept(l.socket, NULL, NULL);
             if (client == INVALID_SOCKET)
                 return false;
-            HANDLE thread = CreateThread(NULL, 0, Connection, (LPVOID)(UINT_PTR)client, 0, NULL);
-            if (thread)
+            Accepted *accepted = new Accepted{ client, l.channel };
+            HANDLE thread = CreateThread(NULL, 0, Connection, accepted, 0, NULL);
+            if (thread) {
                 CloseHandle(thread);
-            else
+            } else {
+                delete accepted;
                 closesocket(client);
+            }
         }
     }
     return true;
 }
 
+static void CloseAll(std::vector<Listener> *listeners)
+{
+    for (const Listener &l : *listeners)
+        closesocket(l.socket);
+    listeners->clear();
+}
+
 /* ---- wsl mode ---------------------------------------------------------- */
 
-static SOCKET ListenOnVm(const std::wstring &vmId)
+static SOCKET ListenOnVm(const std::wstring &vmId, unsigned vsockPort)
 {
     SockaddrHv addr = {};
     addr.Family = AF_HYPERV;
     /* The Linux side addresses a Hyper-V socket by vsock port; Windows sees
      * that port as the first field of this well-known service ID template. */
-    if (FAILED(CLSIDFromString(L"{00000000-facb-11e6-bd58-64006a7986d3}", &addr.ServiceId)) ||
+    if (FAILED(CLSIDFromString(xnt::kHvSocketTemplate, &addr.ServiceId)) ||
         FAILED(CLSIDFromString(vmId.c_str(), &addr.VmId)))
         return INVALID_SOCKET;
-    addr.ServiceId.Data1 = xnt::kVsockPort;
+    addr.ServiceId.Data1 = vsockPort;
 
     SOCKET s = socket(AF_HYPERV, SOCK_STREAM, HV_PROTOCOL_RAW);
     if (s == INVALID_SOCKET)
@@ -210,33 +238,47 @@ static SOCKET ListenOnVm(const std::wstring &vmId)
     return s;
 }
 
+/* Listen on every channel's port of one VM.  A channel that fails is
+ * logged and left out; X is the one that matters. */
+static std::vector<Listener> ListenOnVmChannels(const std::wstring &vmId)
+{
+    std::vector<Listener> listeners;
+    for (const xnt::Channel &channel : xnt::kChannels) {
+        SOCKET s = ListenOnVm(vmId, channel.vsockPort);
+        if (s != INVALID_SOCKET)
+            listeners.push_back({ s, &channel });
+        else
+            Log(std::wstring(L"cannot listen for ") + channel.name + L" on Hyper-V socket port " +
+                std::to_wstring(channel.vsockPort) + L" of " + vmId);
+    }
+    return listeners;
+}
+
 static void ServeWsl()
 {
     std::wstring boundVm;
-    SOCKET listener = INVALID_SOCKET;
+    std::vector<Listener> listeners;
 
     while (!Stopping()) {
         /* The VM's ID changes whenever WSL restarts, so keep checking and
-         * move the listener when it does. */
+         * move the listeners when it does. */
         std::wstring detail;
         std::wstring vm = xnt::FindWslVmId(&detail);
-        if (vm != boundVm || (listener == INVALID_SOCKET && !vm.empty())) {
-            if (listener != INVALID_SOCKET)
-                closesocket(listener);
-            listener = vm.empty() ? INVALID_SOCKET : ListenOnVm(vm);
-            boundVm = listener == INVALID_SOCKET ? L"" : vm;
+        if (vm != boundVm || (listeners.empty() && !vm.empty())) {
+            CloseAll(&listeners);
+            if (!vm.empty())
+                listeners = ListenOnVmChannels(vm);
+            boundVm = listeners.empty() ? L"" : vm;
         }
 
-        if (listener == INVALID_SOCKET) {
+        if (listeners.empty()) {
             WaitForSingleObject(g_stop, 3000);
-        } else if (!AcceptFor({ listener }, 3000)) {
-            closesocket(listener);
-            listener = INVALID_SOCKET;
+        } else if (!AcceptFor(listeners, 3000)) {
+            CloseAll(&listeners);
             boundVm.clear();
         }
     }
-    if (listener != INVALID_SOCKET)
-        closesocket(listener);
+    CloseAll(&listeners);
 }
 
 /* ---- vmware mode ------------------------------------------------------- */
@@ -273,17 +315,11 @@ struct SockaddrVm {
     unsigned char zero[4];
 };
 
-static SOCKET ListenOnVmci()
+static SOCKET ListenOnVmci(int family, unsigned port)
 {
-    int family = VmciAddressFamily();
-    if (family < 0) {
-        Log(L"VMware's socket driver is not available on this computer");
-        return INVALID_SOCKET;
-    }
-
     SockaddrVm addr = {};
     addr.family = (unsigned short)family;
-    addr.port = xnt::kVsockPort;
+    addr.port = port;
     addr.cid = (unsigned int)-1; /* any: guests address the host as CID 2 */
 
     SOCKET s = socket(family, SOCK_STREAM, 0);
@@ -293,41 +329,56 @@ static SOCKET ListenOnVmci()
         return s;
     }
     if (bind(s, (sockaddr *)&addr, sizeof addr) != 0 || listen(s, SOMAXCONN) != 0) {
-        Log(L"cannot listen on VMware socket port " + std::to_wstring(xnt::kVsockPort) + L" (error " +
+        Log(L"cannot listen on VMware socket port " + std::to_wstring(port) + L" (error " +
             std::to_wstring(WSAGetLastError()) + L")");
         closesocket(s);
         return INVALID_SOCKET;
     }
-    Log(L"listening on VMware socket port " + std::to_wstring(xnt::kVsockPort) + L" (family " +
-        std::to_wstring(family) + L")");
+    Log(L"listening on VMware socket port " + std::to_wstring(port) + L" (family " + std::to_wstring(family) + L")");
     return s;
 }
 
 static void ServeVmware()
 {
-    SOCKET listener = INVALID_SOCKET;
+    std::vector<Listener> listeners;
 
     while (!Stopping()) {
-        if (listener == INVALID_SOCKET)
-            listener = ListenOnVmci();
-        if (listener == INVALID_SOCKET) {
+        if (listeners.empty()) {
+            int family = VmciAddressFamily();
+            if (family < 0)
+                Log(L"VMware's socket driver is not available on this computer");
+            else
+                for (const xnt::Channel &channel : xnt::kChannels) {
+                    SOCKET s = ListenOnVmci(family, channel.vsockPort);
+                    if (s != INVALID_SOCKET)
+                        listeners.push_back({ s, &channel });
+                }
+        }
+        if (listeners.empty()) {
             /* No VMware driver, or it is not ready yet: look again later. */
             WaitForSingleObject(g_stop, 5000);
-        } else if (!AcceptFor({ listener }, 3000)) {
-            closesocket(listener);
-            listener = INVALID_SOCKET;
+        } else if (!AcceptFor(listeners, 3000)) {
+            CloseAll(&listeners);
         }
     }
-    if (listener != INVALID_SOCKET)
-        closesocket(listener);
+    CloseAll(&listeners);
 }
 
 /* ---- tcp mode ---------------------------------------------------------- */
 
 struct TcpListener {
     std::wstring address; /* as text, the key for matching */
-    SOCKET socket;
+    Listener listener;
 };
+
+/* Audio goes over the network only when the administrator asked for it. */
+static bool TcpCarriesAudio()
+{
+    DWORD value = 0, size = sizeof value;
+    return RegGetValueW(HKEY_LOCAL_MACHINE, xnt::kTcpKey, L"Audio", RRF_RT_REG_DWORD, NULL, &value, &size) ==
+               ERROR_SUCCESS &&
+           value == 1;
+}
 
 /* The optional allow-list: addresses or adapter names, one per line of a
  * REG_MULTI_SZ.  Empty means every network address of this computer. */
@@ -356,6 +407,9 @@ static bool Listed(const std::vector<std::wstring> &filter, const std::wstring &
 static void SyncTcpListeners(std::vector<TcpListener> *listeners)
 {
     std::vector<std::wstring> filter = ReadListenFilter();
+    std::vector<const xnt::Channel *> channels = { &xnt::kXChannel };
+    if (TcpCarriesAudio())
+        channels.push_back(&xnt::kAudioChannel);
     std::vector<std::wstring> present;
     ULONG size = 64 * 1024;
     std::vector<BYTE> buf(size);
@@ -382,44 +436,52 @@ static void SyncTcpListeners(std::vector<TcpListener> *listeners)
                 continue;
             CopyMemory(&addr, u->Address.lpSockaddr, (size_t)len);
             if (addr.ss_family == AF_INET) {
-                sockaddr_in *in = (sockaddr_in *)&addr;
-                in->sin_port = htons((u_short)xnt::kXBasePort);
-                InetNtopW(AF_INET, &in->sin_addr, text, ARRAYSIZE(text));
+                InetNtopW(AF_INET, &((sockaddr_in *)&addr)->sin_addr, text, ARRAYSIZE(text));
             } else if (addr.ss_family == AF_INET6) {
                 sockaddr_in6 *in6 = (sockaddr_in6 *)&addr;
                 if (IN6_IS_ADDR_LINKLOCAL(&in6->sin6_addr))
                     continue;
-                in6->sin6_port = htons((u_short)xnt::kXBasePort);
                 InetNtopW(AF_INET6, &in6->sin6_addr, text, ARRAYSIZE(text));
             } else {
                 continue;
             }
             if (!filter.empty() && !Listed(filter, text) && !Listed(filter, a->FriendlyName))
                 continue;
-            present.push_back(text);
-            if (listeners->size() >= FD_SETSIZE - 1)
-                continue;
 
-            bool have = false;
-            for (const TcpListener &l : *listeners)
-                have = have || l.address == text;
-            if (have)
-                continue;
+            for (const xnt::Channel *channel : channels) {
+                /* One listener per address and channel, keyed by both. */
+                std::wstring key = std::wstring(text) + L" " + channel->name;
+                present.push_back(key);
+                if (listeners->size() >= FD_SETSIZE - 1)
+                    continue;
 
-            /* The stock X server holds this port on every address with
-             * SO_REUSEADDR set; binding one specific address the same way
-             * coexists with it and takes that address's connections. */
-            SOCKET s = socket(addr.ss_family, SOCK_STREAM, IPPROTO_TCP);
-            int on = 1;
-            if (s == INVALID_SOCKET)
-                continue;
-            setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char *)&on, sizeof on);
-            if (addr.ss_family == AF_INET6)
-                setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, (const char *)&on, sizeof on);
-            if (bind(s, (sockaddr *)&addr, len) == 0 && listen(s, SOMAXCONN) == 0)
-                listeners->push_back({ text, s });
-            else
-                closesocket(s);
+                bool have = false;
+                for (const TcpListener &l : *listeners)
+                    have = have || l.address == key;
+                if (have)
+                    continue;
+
+                u_short port = htons((u_short)channel->localPort);
+                if (addr.ss_family == AF_INET)
+                    ((sockaddr_in *)&addr)->sin_port = port;
+                else
+                    ((sockaddr_in6 *)&addr)->sin6_port = port;
+
+                /* The stock X server holds its port on every address with
+                 * SO_REUSEADDR set; binding one specific address the same way
+                 * coexists with it and takes that address's connections. */
+                SOCKET s = socket(addr.ss_family, SOCK_STREAM, IPPROTO_TCP);
+                int on = 1;
+                if (s == INVALID_SOCKET)
+                    continue;
+                setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char *)&on, sizeof on);
+                if (addr.ss_family == AF_INET6)
+                    setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, (const char *)&on, sizeof on);
+                if (bind(s, (sockaddr *)&addr, len) == 0 && listen(s, SOMAXCONN) == 0)
+                    listeners->push_back({ key, { s, channel } });
+                else
+                    closesocket(s);
+            }
         }
     }
 
@@ -429,7 +491,7 @@ static void SyncTcpListeners(std::vector<TcpListener> *listeners)
         for (const std::wstring &p : present)
             keep = keep || p == (*listeners)[i].address;
         if (!keep) {
-            closesocket((*listeners)[i].socket);
+            closesocket((*listeners)[i].listener.socket);
             listeners->erase(listeners->begin() + (ptrdiff_t)i);
         }
     }
@@ -442,20 +504,20 @@ static void ServeTcp()
     while (!Stopping()) {
         SyncTcpListeners(&listeners);
 
-        std::vector<SOCKET> sockets;
+        std::vector<Listener> sockets;
         for (const TcpListener &l : listeners)
-            sockets.push_back(l.socket);
+            sockets.push_back(l.listener);
 
         if (sockets.empty()) {
             WaitForSingleObject(g_stop, 3000);
         } else if (!AcceptFor(sockets, 3000)) {
             for (const TcpListener &l : listeners)
-                closesocket(l.socket);
+                closesocket(l.listener.socket);
             listeners.clear();
         }
     }
     for (const TcpListener &l : listeners)
-        closesocket(l.socket);
+        closesocket(l.listener.socket);
 }
 
 /* ---- session mode ------------------------------------------------------ */

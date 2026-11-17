@@ -9,7 +9,8 @@
  * not subject to the firewall and keeps working.
  *
  * TCP service rule: lets the XNTsrv TCP service, when someone starts it,
- * accept X connections from directly attached networks only.
+ * accept X connections (and audio, where it is turned on) from directly
+ * attached networks only.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -31,7 +32,7 @@ static const FirewallRule kFirewallRules[] = {
       L"Keeps the XNTsrv X server reachable from this computer only. "
       L"Connections from WSL and other machines go through the XNTsrv services." },
     { L"XNTsrv TCP service (local subnet)", L"xntsrv-service.exe", true,
-      L"Lets the XNTsrv TCP service accept X connections from directly attached networks. "
+      L"Lets the XNTsrv TCP service accept X and audio connections from directly attached networks. "
       L"It has no effect unless that service is started." },
 };
 
@@ -66,7 +67,8 @@ static inline HRESULT SetFirewallRules(const std::wstring &dir)
             rule->put_Direction(NET_FW_RULE_DIR_IN);
             rule->put_Profiles(NET_FW_PROFILE2_ALL);
             if (spec.allow) {
-                BSTR port = SysAllocString(std::to_wstring(xnt::kXBasePort).c_str());
+                std::wstring ports = std::to_wstring(xnt::kXBasePort) + L"," + std::to_wstring(xnt::kAudioPort);
+                BSTR port = SysAllocString(ports.c_str());
                 BSTR remote = SysAllocString(L"LocalSubnet");
                 rule->put_Protocol(NET_FW_IP_PROTOCOL_TCP);
                 rule->put_LocalPorts(port);

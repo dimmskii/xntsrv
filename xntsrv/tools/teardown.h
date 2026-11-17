@@ -11,7 +11,7 @@
 
 #include <tlhelp32.h>
 
-/* Close every XNTsrv server, helper and launcher running from this installation, in
+/* Close every XNTsrv server, helper, audio server and launcher running from this installation, in
  * any user's session.  A running server keeps its files locked, which would
  * make an upgrade or uninstall fail half way.  Returns how many were closed. */
 static inline int StopRunningServers()
@@ -26,7 +26,8 @@ static inline int StopRunningServers()
         return 0;
     for (BOOL more = Process32FirstW(snapshot, &entry); more; more = Process32NextW(snapshot, &entry)) {
         bool ours = false;
-        for (const wchar_t *name : { L"xntsrv-server.exe", L"xntsrv-appearance.exe", L"xntsrvw.exe", L"xntsrv.exe" })
+        for (const wchar_t *name :
+             { L"xntsrv-server.exe", L"xntsrv-appearance.exe", L"xntsrvw.exe", L"xntsrv.exe", L"pulseaudio.exe" })
             ours = ours || lstrcmpiW(entry.szExeFile, name) == 0;
         if (!ours)
             continue;
@@ -124,7 +125,8 @@ static inline bool RemoveMachineSetup()
         ok = false;
     }
 
-    ok = RemoveKey(xnt::kHvSocketKey, L"Hyper-V socket ID:     ") && ok;
+    for (const xnt::Channel &channel : xnt::kChannels)
+        ok = RemoveKey(xnt::HvSocketKey(channel.vsockPort).c_str(), L"Hyper-V socket ID:     ") && ok;
     ok = RemoveKey(xnt::kAppPathsKey, L"App Paths entry:       ") && ok;
     ok = RemoveKey(xnt::kInstallKey, L"Install location:      ") && ok;
     return ok;
