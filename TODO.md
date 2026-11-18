@@ -2,7 +2,7 @@
 
 Status as of 2026-11-17. See `.github/README.md` for what XNTsrv is and how the pieces fit together.
 
-`master` is protected from here on: each piece of work below goes on its own branch and arrives by pull request. The next ones dig into the server itself (items 3, 4, 5 and 13.6); sound (item 14) is in progress.
+`master` is protected from here on: each piece of work below goes on its own branch and arrives by pull request. The next ones dig into the server itself (items 3, 4, 5 and 13.6), and the performance tests on WSL (item 15).
 
 ## Done
 
@@ -46,12 +46,18 @@ In intended order.
     6. **Windows' own pointers in the server.** Cursors reach the server named (libXcursor names them through XFixes, even the old cursor-font ones), so `winLoadCursor` can show the matching shared Windows pointer (`LoadCursor(NULL, IDC_IBEAM)`, ...) and convert only the rest. That follows the scheme, size and animations exactly in every guest with nothing installed, replacing the cursor theme and the three-quarter size. `winSetCursor` must then not destroy shared pointers.
     7. **Paused here (2026-11-17).** 13.5 is on the WSL laptop for testing. Still seen there: pointers that come out black where Windows inverts the screen under them, most likely the default text pointer. The conversion turns inverting pixels into solid black (`PixelsFromTwoBackgrounds`), and X has no inverting colour for ARGB cursors; 13.6 avoids the problem. GTK 2 sizes not yet seen (`gtk-chtheme` from universe).
 
-14. **Sound.** On branch `audio`. Linux programs play and record through a PulseAudio server on Windows, started with the X server, carried by the same services as X:
+14. **Sound.** Linux programs play and record through a PulseAudio server on Windows, started with the X server, carried by the same services as X:
     - The services carry channels: X (vsock 106000 to 127.0.0.1:6000) and audio (vsock 104713 to 127.0.0.1:4713). The TCP route carries audio only when `HKLM\SOFTWARE\XNTsrv\TCP\Audio` is 1.
     - The launcher starts `audio\bin\pulseaudio.exe` (pulseaudio-win32 v5, PulseAudio 15.0, pinned by checksum) unless given `-A` / `--no-audio`, the component is missing, or something already listens on 4713. It runs hidden in a kill-on-close job that only the X server holds, behind a cookie in `%LOCALAPPDATA%\XNTsrv\pulse-cookie`, playing and recording through Windows' default devices (`module-waveout`), with a silent output where there is no sound device. The microphone is on.
     - The installer has components: XNTsrv (always), Audio, Files for Linux guests, Start menu shortcut.
     - The Linux install script maps `/run/xntsrv/pulse/native`, sets `PULSE_SERVER` and `PULSE_COOKIE` unless the session has its own sound server or `PULSE_SERVER` is set, and installs the ALSA PulseAudio plugin and client tools without asking (`XNTSRV_AUDIO=no` leaves sound out). The bridge moved to `/usr/local/lib/xntsrv/`, its settings to `/etc/xntsrv/bridge.conf`, and the scripts are run with `bash`; earlier installs are not migrated.
-    - Still to do: try it on a real machine, both routes (nothing has played a sound yet: CI only checks that the server answers `pactl info` on Windows). Things to watch: that clients over the relayed Unix socket do not try shared memory, latency, the microphone, and whether PulseAudio accepts the cookie's Windows path. pulseaudio-win32's last release is from 2021 and is 32-bit with only `module-waveout` (no WASAPI), so a newer build, or one of our own, may be needed. A desktop guest with its own sound server could get a tunnel to Windows (`module-tunnel-sink`) instead of being left alone. With several users logged in, only the first user's sound server can run (item 11).
+    - Tried on the WSL laptop (2026-11-18): playback works end to end (`sox`'s `play`) after removing the old install by hand. CI checks on Windows that the server starts, answers `pactl info` with the cookie, refuses without it, and ends with the X server.
+    - Still to do: the microphone, programs beyond `sox` (Audacity, mpv with `--ao=pulse` and `--ao=alsa`, a browser, `mikmod`), the VMware route, and what happens when the Windows default device changes during playback. **Pinned for the performance tests (item 15):** latency (`parec | pacat` round trip), crackling under load, and the sample rate it settles on. To watch: whether clients behind the relayed Unix socket try shared memory. pulseaudio-win32's last release is from 2021 and is 32-bit with only `module-waveout` (no WASAPI), so a newer build, or one of our own, may be needed. A desktop guest with its own sound server could get a tunnel to Windows (`module-tunnel-sink`) instead of being left alone. With several users logged in, only the first user's sound server can run (item 11).
+
+15. **Performance tests on WSL, for the README.** **Pinned.** Measure picture and sound on the WSL route and put the results in a table near the top of `.github/README.md`, with a screenshot or short video. Do it on the WSL development machine, where the Windows side can be built and tested natively.
+    - Picture: `xntsrv/bench/xbench.py` (connections, round trips, popups, image transfer), `glxgears` and a heavier OpenGL program with Mesa's Direct3D 12 driver (`GALLIUM_DRIVER=d3d12`, which already works) against software rendering (`llvmpipe`), window dragging and resizing, scrolling in a browser and a terminal.
+    - Sound: the items pinned under 14 (round-trip latency, crackling under load, sample rate), and the sound staying in step with video in mpv.
+    - Against WSLg and X410 where they can be run on the same machine, with the versions and hardware written down beside the table.
 
 ## Known gaps
 
