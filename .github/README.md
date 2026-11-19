@@ -71,7 +71,7 @@ The same script works in a Linux virtual machine under VMware Workstation or Pla
 
 ## Usage
 
-1. **Nothing to start.** The XNTsrv Session service starts the X server when you log in to Windows, and right after installation. An X icon in the notification area shows it is running. If you exit it from that icon, start it again from the Start menu.
+1. **Nothing to start.** The XNTsrv Session service starts the X server when you log in to Windows, and right after installation, and starts it again if it ends. It shows no icon in the notification area, since the service decides when it ends: when you log off, or when the service is stopped in `services.msc`, which also closes the Linux programs shown on it. A server started from the Start menu instead shows the X icon, and the service leaves it alone.
 2. **Open a new WSL terminal** and run a graphical program:
 
    ```sh
@@ -138,7 +138,7 @@ The X server and the sound server listen only on this computer (`127.0.0.1`). Ea
 | XNTsrv WSL | with Windows | The Hyper-V socket of the running WSL virtual machine. Follows WSL restarts. |
 | XNTsrv TCP | only when you start it | This computer's network addresses, limited to the local subnet by a firewall rule. To restrict it further, list addresses or adapter names in the `Listen` value (`REG_MULTI_SZ`) under `HKLM\SOFTWARE\XNTsrv\TCP`. Carries sound only when the `Audio` value there is 1. |
 | XNTsrv VMware | only when you start it | The VMware (VMCI) socket, for Linux virtual machines under VMware Workstation or Player on this computer. Not working yet: on the one real machine tried, the guest could not open the connection. Use XNTsrv TCP from VMware guests for now. |
-| XNTsrv Session | with Windows | Not a route: starts the X server for each user when they log in. With several users logged in at once, only the first server can run for now. |
+| XNTsrv Session | with Windows | Not a route: runs the X server for each user while they are logged in, starting it again if it ends. Stopping or restarting it closes those servers and the Linux programs on them. With several users logged in at once, only the first server can run for now. |
 
 ### Command line
 

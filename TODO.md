@@ -63,7 +63,8 @@ In intended order.
 
 ## Known gaps
 
-- Restarting the XNTsrv Session service, or starting XNTsrv from the Start menu, while a server is already running starts a second one, which fails with an error box (item 11).
+- Starting XNTsrv from the Start menu while the Session service's server is running starts a second one, which fails with an error box (item 11). The service itself no longer does: it leaves a running server alone.
+- The Session service starts an ended server again with no limit, only waiting longer (up to a minute) while it keeps failing at once, and says nothing about it outside `--console` until it has Event Log output (item 7).
 - The services always forward to display `:0`, and with several users logged in the WSL service uses the first WSL VM it finds (item 11).
 - The WSL service polls for WSL restarts every few seconds instead of being notified.
 - The stock server opens its TCP port on every interface; a firewall rule blocks inbound connections to it (item 4).

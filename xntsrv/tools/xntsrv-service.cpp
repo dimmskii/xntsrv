@@ -23,7 +23,9 @@
  *            WSL bridge uses.  Idle when VMware is not installed.
  *   session  Starts the X server (xntsrvw.exe) for each user when they log in,
  *            and for users already logged in when the service starts.  The
- *            server runs as that user, in their session, not elevated.
+ *            server runs as that user, in their session, not elevated, and
+ *            without a tray icon.  The service owns it: it starts it again if
+ *            it ends, and ends it when the user logs off or the service stops.
  *
  * Installed and removed by xntsrv-register and xntsrv-unregister.
  *
@@ -41,7 +43,9 @@
 #include <objbase.h>
 #include <userenv.h>
 #include <wtsapi32.h>
+#include <tlhelp32.h>
 
+#include <map>
 #include <vector>
 
 #ifndef AF_HYPERV
@@ -522,26 +526,83 @@ static void ServeTcp()
 
 /* ---- session mode ------------------------------------------------------ */
 
-/* Start the X server in one login session, as that session's user. */
-static DWORD WINAPI StartServerInSession(LPVOID param)
-{
-    DWORD session = (DWORD)(UINT_PTR)param;
-    HANDLE token = NULL;
+/* The service owns the servers it starts.  Each login session gets a
+ * supervisor thread, which starts the launcher (xntsrvw.exe --wait) as that
+ * session's user inside a job object, waits for it, and starts it again if
+ * it ends.  Everything the launcher starts (the X server, the appearance
+ * helper, the audio server) is in the same job, so ending the job ends all of
+ * it: when the service stops, and when the user logs off.  The servers run
+ * without a tray icon, since the service decides when they end. */
 
+struct SessionServer {
+    DWORD session;
+    HANDLE ended; /* set at logoff */
+};
+
+static CRITICAL_SECTION g_sessionsLock;
+static std::map<DWORD, SessionServer *> g_sessions;
+static LONG g_supervisors;   /* supervisor threads still running */
+static HANDLE g_noSupervisors; /* set when that count is zero */
+
+/* True if an XNTsrv server from this installation already runs in `session`,
+ * started by someone else (the Start menu shortcut, say).  It is left alone. */
+static bool ServerRunningInSession(DWORD session)
+{
+    std::wstring dir = xnt::ProgramDir() + L"\\";
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    PROCESSENTRY32W entry = {};
+    bool found = false;
+
+    entry.dwSize = sizeof entry;
+    if (snapshot == INVALID_HANDLE_VALUE)
+        return false;
+    for (BOOL more = Process32FirstW(snapshot, &entry); more && !found; more = Process32NextW(snapshot, &entry)) {
+        DWORD in = 0;
+        if (lstrcmpiW(entry.szExeFile, L"xntsrv-server.exe") != 0 ||
+            !ProcessIdToSessionId(entry.th32ProcessID, &in) || in != session)
+            continue;
+        HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID);
+        if (!process)
+            continue;
+        wchar_t path[MAX_PATH * 4];
+        DWORD length = ARRAYSIZE(path);
+        found = QueryFullProcessImageNameW(process, 0, path, &length) && length > dir.size() &&
+                CompareStringOrdinal(path, (int)dir.size(), dir.c_str(), (int)dir.size(), TRUE) == CSTR_EQUAL;
+        CloseHandle(process);
+    }
+    CloseHandle(snapshot);
+    return found;
+}
+
+/* Start the launcher in one session, as that session's user, suspended until
+ * it is in a new job.  Returns the job, with the launcher's process handle in
+ * *launcher, or NULL. */
+static HANDLE StartLauncher(DWORD session, HANDLE *launcher)
+{
+    HANDLE token = NULL;
     /* Fails for sessions nobody is logged in to, such as the services' own. */
     if (!WTSQueryUserToken(session, &token)) {
         Log(L"session " + std::to_wstring(session) + L": no logged-in user (error " +
             std::to_wstring(GetLastError()) + L")");
-        return 0;
+        return NULL;
     }
 
     std::wstring dir = xnt::ProgramDir();
     std::wstring exe = dir + L"\\xntsrvw.exe";
-    std::wstring command = L"\"" + exe + L"\"";
+    std::wstring command = L"\"" + exe + L"\" --no-tray --wait";
     wchar_t desktop[] = L"winsta0\\default";
     STARTUPINFOW si = {};
     PROCESS_INFORMATION pi = {};
     void *environment = NULL;
+    HANDLE job = CreateJobObjectW(NULL, NULL);
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = {};
+
+    /* If the service itself dies, its servers go with it. */
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if (job && !SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof limits)) {
+        CloseHandle(job);
+        job = NULL;
+    }
 
     si.cb = sizeof si;
     si.lpDesktop = desktop;
@@ -549,25 +610,135 @@ static DWORD WINAPI StartServerInSession(LPVOID param)
     CreateEnvironmentBlock(&environment, token, FALSE);
 
     /* For an administrator this is the ordinary, unelevated token. */
-    if (CreateProcessAsUserW(token, exe.c_str(), &command[0], NULL, NULL, FALSE,
-                             CREATE_UNICODE_ENVIRONMENT, environment, dir.c_str(), &si, &pi)) {
-        Log(L"session " + std::to_wstring(session) + L": started " + exe);
+    if (job && CreateProcessAsUserW(token, exe.c_str(), &command[0], NULL, NULL, FALSE,
+                                    CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED, environment, dir.c_str(), &si,
+                                    &pi)) {
+        if (AssignProcessToJobObject(job, pi.hProcess)) {
+            ResumeThread(pi.hThread);
+            *launcher = pi.hProcess;
+            Log(L"session " + std::to_wstring(session) + L": started " + exe);
+        } else {
+            Log(L"session " + std::to_wstring(session) + L": cannot put the server in a job (error " +
+                std::to_wstring(GetLastError()) + L")");
+            TerminateProcess(pi.hProcess, 1);
+            CloseHandle(pi.hProcess);
+            CloseHandle(job);
+            job = NULL;
+        }
         CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
     } else {
         Log(L"session " + std::to_wstring(session) + L": cannot start " + exe + L" (error " +
             std::to_wstring(GetLastError()) + L")");
+        if (job)
+            CloseHandle(job);
+        job = NULL;
     }
     if (environment)
         DestroyEnvironmentBlock(environment);
     CloseHandle(token);
+    return job;
+}
+
+/* Thread: keep one session's server running until the service stops or the
+ * user logs off. */
+static DWORD WINAPI Supervise(LPVOID param)
+{
+    SessionServer *s = (SessionServer *)param;
+    std::wstring name = L"session " + std::to_wstring(s->session);
+    DWORD delay = 2000; /* before starting again; grows while the server keeps failing at once */
+
+    while (!Stopping() && WaitForSingleObject(s->ended, 0) != WAIT_OBJECT_0) {
+        HANDLE launcher = NULL;
+        HANDLE job = StartLauncher(s->session, &launcher);
+        if (!job)
+            break;
+
+        ULONGLONG started = GetTickCount64();
+        HANDLE waits[] = { launcher, g_stop, s->ended };
+        DWORD which = WaitForMultipleObjects(3, waits, FALSE, INFINITE);
+        if (which == WAIT_OBJECT_0) {
+            DWORD code = 0;
+            GetExitCodeProcess(launcher, &code);
+            Log(name + L": the server ended (exit code " + xnt::Hex(code) + L")");
+        }
+        /* The server, the helpers and anything else left in the job. */
+        TerminateJobObject(job, 1);
+        CloseHandle(launcher);
+        CloseHandle(job);
+        if (which != WAIT_OBJECT_0)
+            break;
+
+        /* A server that failed at once (its display taken, say) is not
+         * started again in a tight loop. */
+        delay = GetTickCount64() - started < 10000 ? (delay * 2 > 60000 ? 60000 : delay * 2) : 2000;
+        HANDLE pauses[] = { g_stop, s->ended };
+        if (WaitForMultipleObjects(2, pauses, FALSE, delay) != WAIT_TIMEOUT)
+            break;
+        Log(name + L": starting the server again");
+    }
+
+    EnterCriticalSection(&g_sessionsLock);
+    g_sessions.erase(s->session);
+    LeaveCriticalSection(&g_sessionsLock);
+    CloseHandle(s->ended);
+    delete s;
+    if (InterlockedDecrement(&g_supervisors) == 0)
+        SetEvent(g_noSupervisors);
+    return 0;
+}
+
+/* Take charge of one session's server, unless the service already has, or
+ * one is already running there that it did not start. */
+static DWORD WINAPI StartServerInSession(LPVOID param)
+{
+    DWORD session = (DWORD)(UINT_PTR)param;
+
+    EnterCriticalSection(&g_sessionsLock);
+    bool have = g_sessions.count(session) != 0 || Stopping();
+    if (!have && ServerRunningInSession(session)) {
+        Log(L"session " + std::to_wstring(session) + L": an XNTsrv server is already running there; left alone");
+        have = true;
+    }
+    if (!have) {
+        SessionServer *s = new SessionServer{ session, CreateEventW(NULL, TRUE, FALSE, NULL) };
+        g_sessions[session] = s;
+        if (InterlockedIncrement(&g_supervisors) == 1)
+            ResetEvent(g_noSupervisors);
+        HANDLE thread = CreateThread(NULL, 0, Supervise, s, 0, NULL);
+        if (thread) {
+            CloseHandle(thread);
+        } else {
+            g_sessions.erase(session);
+            CloseHandle(s->ended);
+            delete s;
+            if (InterlockedDecrement(&g_supervisors) == 0)
+                SetEvent(g_noSupervisors);
+        }
+    }
+    LeaveCriticalSection(&g_sessionsLock);
+    return 0;
+}
+
+/* The user of `session` logged off: end their server. */
+static DWORD WINAPI EndServerInSession(LPVOID param)
+{
+    DWORD session = (DWORD)(UINT_PTR)param;
+
+    EnterCriticalSection(&g_sessionsLock);
+    auto it = g_sessions.find(session);
+    if (it != g_sessions.end())
+        SetEvent(it->second->ended);
+    LeaveCriticalSection(&g_sessionsLock);
     return 0;
 }
 
 static void ServeSession()
 {
-    /* Users who are already logged in.  Later logins arrive through the
-     * service control handler. */
+    InitializeCriticalSection(&g_sessionsLock);
+    g_noSupervisors = CreateEventW(NULL, TRUE, TRUE, NULL);
+
+    /* Users who are already logged in.  Later logins and logoffs arrive
+     * through the service control handler. */
     WTS_SESSION_INFOW *sessions = NULL;
     DWORD count = 0;
 
@@ -577,6 +748,8 @@ static void ServeSession()
         WTSFreeMemory(sessions);
     }
     WaitForSingleObject(g_stop, INFINITE);
+    /* Each supervisor ends its server's job on the way out. */
+    WaitForSingleObject(g_noSupervisors, 10000);
 }
 
 /* ---- service plumbing -------------------------------------------------- */
@@ -587,6 +760,8 @@ static void Report(DWORD state)
     s.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
     s.dwCurrentState = state;
     s.dwControlsAccepted = state == SERVICE_RUNNING ? SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN : 0;
+    if (state == SERVICE_STOP_PENDING)
+        s.dwWaitHint = 15000; /* the session service ends its servers first */
     if (state == SERVICE_RUNNING && lstrcmpW(g_service->mode, L"session") == 0)
         s.dwControlsAccepted |= SERVICE_ACCEPT_SESSIONCHANGE;
     SetServiceStatus(g_status, &s);
@@ -598,9 +773,10 @@ static DWORD WINAPI Handler(DWORD control, DWORD eventType, LPVOID eventData, LP
     case SERVICE_CONTROL_SESSIONCHANGE:
         /* Only the session service asks for these.  The work is handed to
          * another thread so that this handler returns at once. */
-        if (eventType == WTS_SESSION_LOGON && eventData) {
+        if ((eventType == WTS_SESSION_LOGON || eventType == WTS_SESSION_LOGOFF) && eventData) {
             DWORD session = ((WTSSESSION_NOTIFICATION *)eventData)->dwSessionId;
-            QueueUserWorkItem(StartServerInSession, (LPVOID)(UINT_PTR)session, WT_EXECUTEDEFAULT);
+            QueueUserWorkItem(eventType == WTS_SESSION_LOGON ? StartServerInSession : EndServerInSession,
+                              (LPVOID)(UINT_PTR)session, WT_EXECUTEDEFAULT);
         }
         return NO_ERROR;
     case SERVICE_CONTROL_STOP:

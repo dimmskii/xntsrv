@@ -44,8 +44,8 @@ const ServiceInfo kServices[] = {
       L"Carries connections from VMware virtual machines on this computer to the XNTsrv X server over the "
       L"VMware (VMCI) socket. Not started unless you start it. Needs VMware Workstation or Player installed." },
     { L"XNTsrvSession", L"session", L"XNTsrv Session", true,
-      L"Starts the XNTsrv X server for each user when they log in. Stopping this service does not close "
-      L"servers that are already running; it only stops new ones from being started." },
+      L"Runs the XNTsrv X server for each user while they are logged in, and starts it again if it ends. "
+      L"Stopping this service closes the servers it started, and the Linux programs shown on them." },
 };
 /* Services earlier versions installed; removed on register and unregister. */
 const wchar_t *const kRetiredServices[] = { L"XNTsrv" };
