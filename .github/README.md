@@ -124,7 +124,7 @@ On the Windows side, check that **XNTsrv WSL** is running in `services.msc`, and
 |---|---|
 | `Can't open display` at once | The bridge is not running, or `DISPLAY` is not set in this terminal. |
 | `Can't open display`, and the bridge log says `cannot reach vsock:2:106000` | The XNTsrv WSL service is stopped, or WSL was not restarted after installing. |
-| `Can't open display`, nothing in the bridge log | The X server is not running; start it from the Start menu, and check that XNTsrv Session is running in `services.msc`. |
+| `Can't open display`, nothing in the bridge log | The X server is not running. Check that XNTsrv Session is running in `services.msc`; it starts the server and starts it again if it ends. |
 | `Authorization required` or `No protocol specified` | `XAUTHORITY` does not point at your cookie. |
 | `pactl info` says `Connection failure: Connection refused` | The X server is not running, or was started with `-A`, or the Audio component is not installed. |
 | `pactl info` says `Connection failure: Access denied` | `PULSE_COOKIE` does not point at your sound cookie. |

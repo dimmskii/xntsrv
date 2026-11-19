@@ -30,7 +30,11 @@
  * Installed and removed by xntsrv-register and xntsrv-unregister.
  *
  * For troubleshooting, "xntsrv-service MODE --console" runs a mode in the
- * foreground as the current user, saying what it does, until Ctrl+C.
+ * foreground as the current user, saying what it does, until Ctrl+C.  The
+ * route modes need an administrator (wsl, to find the VM) or nothing special;
+ * session mode needs SYSTEM, since only SYSTEM may start programs in other
+ * users' sessions (WTSQueryUserToken fails with error 1314 otherwise), so run
+ * it from a SYSTEM prompt, e.g. psexec -s.
  *
  * SPDX-License-Identifier: MIT
  */
