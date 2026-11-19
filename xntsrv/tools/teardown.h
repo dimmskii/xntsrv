@@ -7,47 +7,24 @@
  */
 #pragma once
 
+#include "../common/installed-processes.h"
 #include "firewall.h"
-
-#include <tlhelp32.h>
 
 /* Close every XNTsrv server, helper, audio server and launcher running from this installation, in
  * any user's session.  A running server keeps its files locked, which would
  * make an upgrade or uninstall fail half way.  Returns how many were closed. */
 static inline int StopRunningServers()
 {
-    std::wstring dir = xnt::ProgramDir() + L"\\";
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    PROCESSENTRY32W entry = {};
     int closed = 0;
-
-    entry.dwSize = sizeof entry;
-    if (snapshot == INVALID_HANDLE_VALUE)
-        return 0;
-    for (BOOL more = Process32FirstW(snapshot, &entry); more; more = Process32NextW(snapshot, &entry)) {
-        bool ours = false;
-        for (const wchar_t *name :
-             { L"xntsrv-server.exe", L"xntsrv-appearance.exe", L"xntsrvw.exe", L"xntsrv.exe", L"pulseaudio.exe" })
-            ours = ours || lstrcmpiW(entry.szExeFile, name) == 0;
-        if (!ours)
-            continue;
-
-        HANDLE process = OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE,
-                                     entry.th32ProcessID);
-        if (!process)
-            continue;
-        /* Only this installation's copies, not a same-named program elsewhere. */
-        wchar_t path[MAX_PATH * 4];
-        DWORD length = ARRAYSIZE(path);
-        if (QueryFullProcessImageNameW(process, 0, path, &length) && length > dir.size() &&
-            CompareStringOrdinal(path, (int)dir.size(), dir.c_str(), (int)dir.size(), TRUE) == CSTR_EQUAL &&
-            TerminateProcess(process, 1)) {
-            WaitForSingleObject(process, 5000);
-            closed++;
-        }
-        CloseHandle(process);
-    }
-    CloseHandle(snapshot);
+    xnt::ForEachInstalledProcess(
+        { L"xntsrv-server.exe", L"xntsrv-appearance.exe", L"xntsrvw.exe", L"xntsrv.exe", L"pulseaudio.exe" },
+        PROCESS_TERMINATE | SYNCHRONIZE, [&](const PROCESSENTRY32W &, HANDLE process) {
+            if (TerminateProcess(process, 1)) {
+                WaitForSingleObject(process, 5000);
+                closed++;
+            }
+            return true;
+        });
     return closed;
 }
 

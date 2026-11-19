@@ -78,7 +78,8 @@ foreach ($second in 1..15) {
     if (Get-Process xntsrv-server -ErrorAction SilentlyContinue) { break }
     Start-Sleep -Seconds 1
 }
-if (Get-Process xntsrv-server -ErrorAction SilentlyContinue) {
+$byService = $null -ne (Get-Process xntsrv-server -ErrorAction SilentlyContinue)
+if ($byService) {
     Write-Output 'the Session service started the server'
 } else {
     Write-Output 'no server from the Session service (no logged-in session here?); starting it by hand'
@@ -134,6 +135,42 @@ Write-Output "server product name: $((Get-Item "$dir\xntsrv-server.exe").Version
 # The log is XNTsrv.0.log from a build of this repository, VCXSrv.0.log from the upstream release.
 foreach ($log in 'XNTsrv.0.log', 'VCXSrv.0.log') {
     if (Test-Path "$env:TEMP\$log") { Write-Output "--- $log"; Get-Content "$env:TEMP\$log" -Tail 15 }
+}
+
+# The Session service owns the servers it starts: it starts them again when
+# they end, and ends them when it stops.
+function WaitFor([scriptblock] $condition, [int] $seconds) {
+    foreach ($i in 1..$seconds) { if (& $condition) { return $true }; Start-Sleep -Seconds 1 }
+    return [bool](& $condition)
+}
+function ServerIds { @(Get-Process xntsrv-server -ErrorAction SilentlyContinue | ForEach-Object { $_.Id }) }
+if ($byService) {
+    $first = Get-Process xntsrv-server | Select-Object -First 1
+    Stop-Process -Id $first.Id -Force
+    Check 'the Session service starts the server again after it ends' (WaitFor { (ServerIds).Count -eq 1 -and (ServerIds)[0] -ne $first.Id } 30)
+
+    Stop-Service XNTsrvSession
+    Check 'stopping the Session service ends the server and its helpers' (WaitFor {
+        -not (Get-Process xntsrv-server, xntsrv-appearance, pulseaudio, xntsrvw -ErrorAction SilentlyContinue) } 15)
+    Start-Service XNTsrvSession
+    Check 'starting the Session service starts the server' (WaitFor { (ServerIds).Count -eq 1 } 30)
+
+    # A server it did not start is left alone, and none is added beside it.
+    Stop-Service XNTsrvSession
+    $null = WaitFor { (ServerIds).Count -eq 0 } 15
+    & "$dir\xntsrv.exe"
+    $null = WaitFor { (ServerIds).Count -eq 1 } 15
+    $own = Get-Process xntsrv-server -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($own -and $own.SessionId -eq $first.SessionId) {
+        Start-Service XNTsrvSession
+        Start-Sleep -Seconds 8
+        Check 'the Session service leaves a server it did not start alone' ((ServerIds).Count -eq 1 -and (ServerIds)[0] -eq $own.Id)
+    } else {
+        Write-Output 'skipped the left-alone check: a server started here runs in another session than the service uses'
+        Start-Service XNTsrvSession
+    }
+} else {
+    Write-Output 'skipped the Session service ownership checks: it found no logged-in session'
 }
 
 # _?= makes the uninstaller run in place and wait, so its own file stays behind.

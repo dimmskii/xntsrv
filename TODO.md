@@ -10,7 +10,7 @@ Status as of 2026-11-17. See `.github/README.md` for what XNTsrv is and how the 
 - Launcher (`xntsrv.exe`, `xntsrvw.exe`) with a GNU-style command line.
 - Linux-side bridge (`xntsrv-bridge`).
 - Services: **XNTsrv WSL** (Hyper-V socket) and **XNTsrv TCP** (network addresses).
-- **XNTsrv Session** service: starts the server at login.
+- **XNTsrv Session** service: runs each logged-in user's server, starting it at login and again if it ends, and ending it at logoff and when the service stops.
 - Setup tools: `xntsrv-register`, `xntsrv-unregister`, `xntsrv-reset`.
 - NSIS installer that packages the server built from this repository (falling back to the upstream VcXsrv release when no build is available).
 - End-to-end test on a real Windows 10 machine over the Hyper-V route.
@@ -32,10 +32,12 @@ In intended order.
 5. **Pick up xorg security fixes.** Upstream VcXsrv's last release was 21.1.16.1 (March 2025); check what xorg-server has fixed since.
 6. ~~**Linux-side setup.**~~ Done: `xntsrv-install.sh`, `xntsrv-update.sh` and `xntsrv-uninstall.sh` install the bridge as a systemd service and set `DISPLAY` and `XAUTHORITY`. Still to do here: fetch a prebuilt bridge from a release instead of building from source, and package-manager repositories.
 7. **Event Log output from the services.** Failures inside them are silent today.
-8. **Control Panel applet** (`xntsrv.cpl`) with a classic property sheet, opened from the tray menu's "Properties…" entry.
+8. **Control Panel item** (`xntsrv.cpl`): a small window in the style of Windows' own Control Panel items, with roughly four tabs: General, Network, WSL and VMware. Servers started by the Session service have no tray icon, so it is opened from Control Panel and the Start menu, not from a tray menu.
 9. **Group Policy templates** (ADMX).
 10. **XNTsrv VMware service.** Written: the service listens on the VMware (VMCI) socket, and `xntsrv-install.sh` accepts VMware guests. The bridge needs no VMware mode, since Linux reaches VMCI as the same vsock address it uses under WSL; its mappings can be overridden in `/etc/xntsrv/bridge.conf`. Tried on the maintainer's VMware machine (Ubuntu 24.04 guest): the guest's direct connection fails with `EINVAL`, and the kernel logs `Could not attach to queue pair with -10`, so that guest uses the XNTsrv TCP service over the host-only network instead. Still to do: find out why the VMCI connection is refused, and get the authentication cookies into the guest automatically instead of by copying them to `/etc/xntsrv/Xauthority` and `/etc/xntsrv/pulse-cookie`.
-11. **XNTsrv Session service and per-user displays.** The service is done: it starts the server for each user at login and for users already logged in, as that user and not elevated. Still to do: a display per user (today every server wants `:0`, so a second logged-in user's server fails to start), routing each user's connections to their own display, not starting a second server when one is already running, and restarting after a crash.
+11. **XNTsrv Session service and per-user displays.** The service runs the server for each logged-in user, as that user and not elevated, and owns it (see the branch below). Still to do: a display per user (today every server wants `:0`, so a second logged-in user's server fails to start), and routing each user's connections to their own display.
+    - Branch `session-manager`: the Session service owns the servers it starts, one job object per login session, so stopping or restarting the service ends them, and so does logging off. It starts them without a tray icon and restarts them when they exit. Restart limits wait for Event Log output (item 7), which comes next.
+    - To consider: Windows 10's per-user services (`SERVICE_USER_OWN_PROCESS`), the ones listed as `Name_1a2b3c` with a hex suffix, one instance per logged-in user, started at logon and stopped at logoff by Windows itself. They might replace the job bookkeeping. Find out first whether such an instance runs in the user's interactive session (the X server needs the desktop), how its instances can be stopped and disabled, and whether third-party services are supported, since Microsoft documents them mostly for administrators to turn off.
 12. **Releases.** Tagged, immutable GitHub releases instead of CI artifacts; code signing once there is a certificate.
 13. **Follow the Windows appearance.** Make X programs match the user's Windows settings, and follow changes to them. A per-user helper, started with the server, pushes settings to clients over X's own channels (XSETTINGS and the root window's resources), so it works for every kind of guest with nothing installed in it; files are used only where a program has to read them itself. Only the classic settings are read (colours, fonts, metrics, cursors), plus display scale and the light/dark switch; Aero effects are not. Uses Windows' built-in imaging, no bundled image library. In order:
     1. ~~DPI, UI font, cursor size and light/dark preference.~~ Done: `xntsrv-appearance.exe`, started by the launcher. Not yet checked: what each toolkit does with the values, and live changes on a real desktop.
@@ -61,7 +63,9 @@ In intended order.
 
 ## Known gaps
 
-- Restarting the XNTsrv Session service, or starting XNTsrv from the Start menu, while a server is already running starts a second one, which fails with an error box (item 11).
+- Starting XNTsrv from the Start menu while the Session service's server is running starts a second one, which fails with an error box (item 11). The service itself no longer does: it leaves a running server alone.
+- A session whose server the Session service did not start (one started from the Start menu) stays unsupervised: when that server ends, the service does not take over, so the session has no server until the next logon or a restart of the service.
+- The Session service starts an ended server again with no limit, only waiting longer (up to a minute) while it keeps failing at once, and says nothing about it outside `--console` until it has Event Log output (item 7).
 - The services always forward to display `:0`, and with several users logged in the WSL service uses the first WSL VM it finds (item 11).
 - The WSL service polls for WSL restarts every few seconds instead of being notified.
 - The stock server opens its TCP port on every interface; a firewall rule blocks inbound connections to it (item 4).
