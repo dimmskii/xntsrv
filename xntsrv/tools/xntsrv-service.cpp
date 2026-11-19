@@ -40,6 +40,7 @@
  */
 #define FD_SETSIZE 128
 #include "../common/xntsrv-common.h"
+#include "../common/installed-processes.h"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -47,7 +48,6 @@
 #include <objbase.h>
 #include <userenv.h>
 #include <wtsapi32.h>
-#include <tlhelp32.h>
 
 #include <map>
 #include <vector>
@@ -552,29 +552,12 @@ static HANDLE g_noSupervisors; /* set when that count is zero */
  * started by someone else (the Start menu shortcut, say).  It is left alone. */
 static bool ServerRunningInSession(DWORD session)
 {
-    std::wstring dir = xnt::ProgramDir() + L"\\";
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    PROCESSENTRY32W entry = {};
     bool found = false;
-
-    entry.dwSize = sizeof entry;
-    if (snapshot == INVALID_HANDLE_VALUE)
-        return false;
-    for (BOOL more = Process32FirstW(snapshot, &entry); more && !found; more = Process32NextW(snapshot, &entry)) {
+    xnt::ForEachInstalledProcess({ L"xntsrv-server.exe" }, 0, [&](const PROCESSENTRY32W &entry, HANDLE) {
         DWORD in = 0;
-        if (lstrcmpiW(entry.szExeFile, L"xntsrv-server.exe") != 0 ||
-            !ProcessIdToSessionId(entry.th32ProcessID, &in) || in != session)
-            continue;
-        HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID);
-        if (!process)
-            continue;
-        wchar_t path[MAX_PATH * 4];
-        DWORD length = ARRAYSIZE(path);
-        found = QueryFullProcessImageNameW(process, 0, path, &length) && length > dir.size() &&
-                CompareStringOrdinal(path, (int)dir.size(), dir.c_str(), (int)dir.size(), TRUE) == CSTR_EQUAL;
-        CloseHandle(process);
-    }
-    CloseHandle(snapshot);
+        found = ProcessIdToSessionId(entry.th32ProcessID, &in) && in == session;
+        return !found;
+    });
     return found;
 }
 
