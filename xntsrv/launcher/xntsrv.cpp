@@ -2,12 +2,15 @@
  * xntsrv - launcher for the XNTsrv X server.
  *
  * Translates a conventional command line into the server's own options,
- * prepares X authentication, and starts xntsrv-server.exe.
+ * prepares X authentication, and starts xntsrv-server.exe, the appearance
+ * helper and, when it is installed, the audio server.
  *
  * SPDX-License-Identifier: MIT
  */
 #include "../common/xntsrv-common.h"
 
+#include <winsock2.h>
+#include <iphlpapi.h>
 #include <bcrypt.h>
 #include <shellapi.h>
 #include <shlobj.h>
@@ -16,6 +19,7 @@
 #include <vector>
 
 #define COOKIE_LEN 16
+#define PULSE_COOKIE_LEN 256 /* PulseAudio's native protocol cookie */
 
 using std::wstring;
 
@@ -31,6 +35,7 @@ static const wchar_t kHelp[] =
     L"      --no-tray           hide the tray icon\n"
     L"      --no-appearance     do not pass the Windows display scale, font, pointer size\n"
     L"                          and light or dark preference on to X programs\n"
+    L"  -A, --no-audio          do not start the audio server for X programs\n"
     L"      --dpi=N             override DPI\n"
     L"      --server=PATH       server binary (default: xntsrv-server.exe beside xntsrv.exe)\n"
     L"  -n, --dry-run           print the server command line and exit\n"
@@ -51,6 +56,7 @@ struct Options {
     bool gl = true;
     bool tray = true;
     bool appearance = true;
+    bool audio = true;
     unsigned dpi = 0;
     wstring server;
     bool dryRun = false;
@@ -168,7 +174,7 @@ struct OptSpec {
 static const OptSpec kSpecs[] = {
     { L'd', L"display", true },    { L'm', L"mode", true },        { 0, L"no-auth", false },
     { 0, L"no-clipboard", false }, { 0, L"no-gl", false },         { 0, L"no-tray", false },
-    { 0, L"no-appearance", false },
+    { 0, L"no-appearance", false }, { L'A', L"no-audio", false },
     { 0, L"dpi", true },           { 0, L"server", true },         { L'n', L"dry-run", false },
     { L'w', L"wait", false },      { L'h', L"help", false },       { L'V', L"version", false },
 };
@@ -203,6 +209,8 @@ static ParseResult Apply(const OptSpec &spec, const wstring &value, Options *o)
         o->tray = false;
     } else if (name == L"no-appearance") {
         o->appearance = false;
+    } else if (name == L"no-audio") {
+        o->audio = false;
     } else if (name == L"dry-run") {
         o->dryRun = true;
     } else if (name == L"wait") {
@@ -315,15 +323,45 @@ static wstring ResolveServer(const Options &o)
 
 /* ---- X authentication -------------------------------------------------- */
 
-static wstring AuthFilePath()
+/* %LOCALAPPDATA%\XNTsrv, where each user's cookies and generated files live;
+ * empty if it cannot be found. */
+static wstring UserDataDir()
 {
     PWSTR base = NULL;
     wstring path;
 
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, NULL, &base)))
-        path = wstring(base) + L"\\XNTsrv\\Xauthority";
+        path = wstring(base) + L"\\" + xnt::kUserDataDir;
     CoTaskMemFree(base);
     return path;
+}
+
+static wstring AuthFilePath()
+{
+    wstring dir = UserDataDir();
+    return dir.empty() ? dir : dir + L"\\Xauthority";
+}
+
+/* Write `bytes` to a new file; false if it cannot.  An existing file counts
+ * as success and is left alone. */
+static bool WriteNewFile(const wstring &path, const std::string &bytes)
+{
+    CreateDirectoryW(DirName(path).c_str(), NULL);
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE)
+        return GetLastError() == ERROR_FILE_EXISTS;
+    DWORD n = 0;
+    bool ok = WriteFile(h, bytes.data(), (DWORD)bytes.size(), &n, NULL) && n == bytes.size();
+    CloseHandle(h);
+    if (!ok)
+        DeleteFileW(path.c_str());
+    return ok;
+}
+
+static bool RandomBytes(size_t count, std::string *out)
+{
+    out->assign(count, '\0');
+    return BCryptGenRandom(NULL, (PUCHAR)&(*out)[0], (ULONG)count, BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0;
 }
 
 static void PutCounted(std::string *out, const std::string &bytes)
@@ -342,8 +380,8 @@ static bool EnsureAuthFile(const wstring &path, unsigned display)
     if (FileExists(path))
         return true;
 
-    unsigned char cookie[COOKIE_LEN];
-    if (BCryptGenRandom(NULL, cookie, sizeof cookie, BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0)
+    std::string cookie;
+    if (!RandomBytes(COOKIE_LEN, &cookie))
         return false;
 
     std::string entry;
@@ -351,17 +389,167 @@ static bool EnsureAuthFile(const wstring &path, unsigned display)
     PutCounted(&entry, "");
     PutCounted(&entry, std::to_string(display));
     PutCounted(&entry, "MIT-MAGIC-COOKIE-1");
-    PutCounted(&entry, std::string((const char *)cookie, sizeof cookie));
+    PutCounted(&entry, cookie);
+    return WriteNewFile(path, entry);
+}
 
-    CreateDirectoryW(DirName(path).c_str(), NULL);
-    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+/* ---- audio ------------------------------------------------------------- */
+
+/* The audio server is PulseAudio, installed as an optional component in
+ * audio\ beside this program.  It listens on 127.0.0.1 only, behind a cookie
+ * kept beside the X cookie, and the XNTsrv services carry guests' connections
+ * to it as they do for X.  It runs in a job object that only the X server
+ * holds a handle to, so it ends when the server does.
+ *
+ * In order: -A turns it off; an audio server already listening on its port
+ * (another XNTsrv's, or the user's own) is left to serve; without the
+ * component there is no audio; otherwise it is started. */
+struct AudioPlan {
+    wstring exe;     /* empty: do not start one */
+    wstring command; /* its command line */
+    wstring script;  /* the startup script to write first */
+    wstring scriptPath;
+    wstring cookiePath;
+    wstring stateDir;
+};
+
+static wstring AudioDir() { return xnt::ProgramDir() + L"\\audio"; }
+
+static bool PortListening(unsigned port)
+{
+    ULONG size = 0;
+    std::vector<BYTE> buf;
+    DWORD rc = ERROR_INSUFFICIENT_BUFFER;
+
+    while (rc == ERROR_INSUFFICIENT_BUFFER) {
+        buf.resize(size ? size : 1);
+        rc = GetExtendedTcpTable(buf.data(), &size, FALSE, AF_INET, TCP_TABLE_BASIC_LISTENER, 0);
+    }
+    if (rc != NO_ERROR)
+        return false;
+    const MIB_TCPTABLE *table = (const MIB_TCPTABLE *)buf.data();
+    for (DWORD i = 0; i < table->dwNumEntries; i++) {
+        const MIB_TCPROW &row = table->table[i];
+        DWORD addr = ntohl(row.dwLocalAddr);
+        if (ntohs((u_short)row.dwLocalPort) == port && (addr == INADDR_ANY || addr == INADDR_LOOPBACK))
+            return true;
+    }
+    return false;
+}
+
+/* A value in a PulseAudio module argument: single-quoted, with backslashes
+ * and quotes escaped, since its parser treats a backslash as an escape. */
+static wstring ModArg(const wstring &value)
+{
+    wstring out = L"'";
+    for (wchar_t c : value) {
+        if (c == L'\\' || c == L'\'')
+            out.push_back(L'\\');
+        out.push_back(c);
+    }
+    return out + L"'";
+}
+
+static AudioPlan PlanAudio(const Options &o)
+{
+    AudioPlan p; /* p.exe stays empty when there is to be no audio server */
+    wstring exe = AudioDir() + L"\\bin\\pulseaudio.exe";
+    wstring data = UserDataDir();
+
+    if (!o.audio || !FileExists(exe) || data.empty() || PortListening(xnt::kAudioPort))
+        return p;
+
+    p.exe = exe;
+    p.stateDir = data + L"\\audio";
+    p.cookiePath = data + L"\\pulse-cookie";
+    p.scriptPath = p.stateDir + L"\\xntsrv.pa";
+    /* Windows' default playback and recording devices, each on its own so
+     * that a computer without a microphone still plays (one module opening
+     * both fails when either is missing); a silent output on a computer with
+     * no sound device at all, since the server would not start otherwise; and
+     * the native protocol on loopback only. */
+    p.script = L"# Written by xntsrv.exe at every start; changes are lost.\n"
+               L".nofail\n"
+               L"load-module module-waveout sink_name=windows record=0\n"
+               L"load-module module-waveout source_name=windows_input playback=0\n"
+               L".fail\n"
+               L"load-module module-always-sink\n"
+               L"load-module module-native-protocol-tcp listen=127.0.0.1 port=" +
+               std::to_wstring(xnt::kAudioPort) + L" auth-anonymous=0 auth-cookie=" + ModArg(p.cookiePath) + L"\n";
+
+    std::vector<wstring> args = {
+        L"-n",                                /* none of the default modules: only the script's */
+        L"--file=" + p.scriptPath,
+        L"--dl-search-path=" + AudioDir() + L"\\bin",
+        L"--exit-idle-time=-1",               /* it lives as long as the X server */
+        L"--disallow-exit",
+        L"--use-pid-file=no",
+        L"--log-target=newfile:" + p.stateDir + L"\\pulseaudio.log",
+    };
+    p.command = Quote(exe);
+    for (const wstring &a : args)
+        p.command += L" " + Quote(a);
+    return p;
+}
+
+/* Write the cookie and the startup script.  The cookie, like the X one, is
+ * kept, so guests that hold it keep working across restarts. */
+static bool PrepareAudio(const AudioPlan &p)
+{
+    std::string cookie;
+    if (!FileExists(p.cookiePath) && (!RandomBytes(PULSE_COOKIE_LEN, &cookie) || !WriteNewFile(p.cookiePath, cookie)))
+        return false;
+
+    CreateDirectoryW(DirName(p.stateDir).c_str(), NULL);
+    CreateDirectoryW(p.stateDir.c_str(), NULL);
+    int len = WideCharToMultiByte(CP_UTF8, 0, p.script.c_str(), (int)p.script.size(), NULL, 0, NULL, NULL);
+    std::string utf8((size_t)len, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, p.script.c_str(), (int)p.script.size(), &utf8[0], len, NULL, NULL);
+    HANDLE h = CreateFileW(p.scriptPath.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (h == INVALID_HANDLE_VALUE)
-        return GetLastError() == ERROR_FILE_EXISTS;
+        return false;
     DWORD n = 0;
-    bool ok = WriteFile(h, entry.data(), (DWORD)entry.size(), &n, NULL) && n == entry.size();
+    bool ok = WriteFile(h, utf8.data(), (DWORD)utf8.size(), &n, NULL) && n == utf8.size();
     CloseHandle(h);
-    if (!ok)
-        DeleteFileW(path.c_str());
+    return ok;
+}
+
+/* A job that ends every process in it once its last handle closes. */
+static HANDLE CreateKillOnCloseJob()
+{
+    SECURITY_ATTRIBUTES sa = { sizeof sa, NULL, TRUE }; /* inheritable, for the X server */
+    HANDLE job = CreateJobObjectW(&sa, NULL);
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = {};
+
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if (job && !SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof limits)) {
+        CloseHandle(job);
+        job = NULL;
+    }
+    return job;
+}
+
+/* Start the audio server in `job`, hidden.  Its state stays in the user's
+ * XNTsrv folder rather than in their profile. */
+static bool StartAudio(const AudioPlan &p, HANDLE job)
+{
+    SetEnvironmentVariableW(L"PULSE_RUNTIME_PATH", p.stateDir.c_str());
+    SetEnvironmentVariableW(L"PULSE_STATE_PATH", p.stateDir.c_str());
+
+    STARTUPINFOW si = {};
+    PROCESS_INFORMATION pi;
+    si.cb = sizeof si;
+    wstring command = p.command;
+    if (!CreateProcessW(p.exe.c_str(), &command[0], NULL, NULL, FALSE, CREATE_NO_WINDOW | CREATE_SUSPENDED, NULL,
+                        DirName(p.exe).c_str(), &si, &pi))
+        return false;
+    bool ok = AssignProcessToJobObject(job, pi.hProcess) != 0;
+    if (ok)
+        ResumeThread(pi.hThread);
+    else
+        TerminateProcess(pi.hProcess, 1); /* it would outlive the server */
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
     return ok;
 }
 
@@ -434,8 +622,12 @@ static int Run(int argc, wchar_t **argv)
     for (const wstring &arg : BuildServerArgs(o, authFile))
         cmdline += L" " + Quote(arg);
 
+    AudioPlan audio = PlanAudio(o);
+
     if (o.dryRun) {
         Out(cmdline + L"\n");
+        if (!audio.exe.empty())
+            Out(audio.command + L"\n");
         return 0;
     }
 
@@ -444,15 +636,51 @@ static int Run(int argc, wchar_t **argv)
         return 1;
     }
 
-    STARTUPINFOW si = {};
+    /* The audio server's job.  Only the X server inherits a handle to it, so
+     * once this launcher has let go of its own, the job and the audio server
+     * end with the X server.  Without a job there is no audio: it would
+     * outlive the server. */
+    HANDLE job = NULL;
+    if (!audio.exe.empty() && PrepareAudio(audio))
+        job = CreateKillOnCloseJob();
+
+    STARTUPINFOEXW si = {};
     PROCESS_INFORMATION pi;
-    si.cb = sizeof si;
+    si.StartupInfo.cb = sizeof si;
+    std::vector<BYTE> attributes;
+    DWORD flags = 0;
+    if (job) {
+        SIZE_T size = 0;
+        InitializeProcThreadAttributeList(NULL, 1, 0, &size);
+        attributes.resize(size);
+        si.lpAttributeList = (LPPROC_THREAD_ATTRIBUTE_LIST)attributes.data();
+        if (InitializeProcThreadAttributeList(si.lpAttributeList, 1, 0, &size) &&
+            UpdateProcThreadAttribute(si.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, &job, sizeof job,
+                                      NULL, NULL)) {
+            flags = EXTENDED_STARTUPINFO_PRESENT;
+        } else {
+            CloseHandle(job);
+            job = NULL;
+        }
+    }
     std::vector<wchar_t> buf(cmdline.begin(), cmdline.end());
     buf.push_back(L'\0');
-    if (!CreateProcessW(server.c_str(), buf.data(), NULL, NULL, FALSE, 0, NULL,
-                        DirName(server).c_str(), &si, &pi)) {
-        Err(L"cannot start " + server + L" (error " + std::to_wstring(GetLastError()) + L")");
+    BOOL started = CreateProcessW(server.c_str(), buf.data(), NULL, NULL, job != NULL, flags, NULL,
+                                  DirName(server).c_str(), &si.StartupInfo, &pi);
+    DWORD error = GetLastError();
+    if (si.lpAttributeList)
+        DeleteProcThreadAttributeList(si.lpAttributeList);
+    if (!started) {
+        if (job)
+            CloseHandle(job);
+        Err(L"cannot start " + server + L" (error " + std::to_wstring(error) + L")");
         return 1;
+    }
+
+    /* If it fails, X programs simply get no sound; the server is unaffected. */
+    if (job) {
+        StartAudio(audio, job);
+        CloseHandle(job);
     }
 
     /* The helper that passes Windows appearance settings on to X programs.

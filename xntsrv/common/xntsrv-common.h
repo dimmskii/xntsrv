@@ -50,21 +50,46 @@ const ServiceInfo kServices[] = {
 /* Services earlier versions installed; removed on register and unregister. */
 const wchar_t *const kRetiredServices[] = { L"XNTsrv" };
 
-/* Port the Linux bridge connects to; kHvSocketKey below is this port's ID. */
-const unsigned kVsockPort = 106000;
 /* The X server's TCP port is this plus the display number. */
 const unsigned kXBasePort = 6000;
+/* The audio (PulseAudio) server started with the X server listens here, on
+ * 127.0.0.1 only. */
+const unsigned kAudioPort = 4713;
+
+/* What the XNTsrv services carry.  Each channel is a vsock port a guest
+ * connects to and the port on 127.0.0.1 its connections are relayed to.  The
+ * vsock ports are the local ones plus 100000, out of the way of anything a
+ * guest might run itself. */
+struct Channel {
+    const wchar_t *name; /* as used in log lines */
+    unsigned vsockPort;
+    unsigned localPort;
+};
+const Channel kChannels[] = {
+    { L"X", 106000, kXBasePort }, /* display :0 for now; a display per user comes with item 11 */
+    { L"audio", 104713, kAudioPort },
+};
+inline const Channel &kXChannel = kChannels[0];
+inline const Channel &kAudioChannel = kChannels[1];
 
 /* Machine-wide registry entries, all under HKEY_LOCAL_MACHINE. */
 const wchar_t kInstallKey[] = L"SOFTWARE\\XNTsrv";
 /* Settings of the XNTsrv TCP service. */
 const wchar_t kTcpKey[] = L"SOFTWARE\\XNTsrv\\TCP";
 const wchar_t kAppPathsKey[] = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\xntsrv.exe";
-/* Hyper-V socket service ID for the default vsock port, 106000 (0x19E10).
- * Windows only delivers guest connections to registered service IDs. */
-const wchar_t kHvSocketKey[] =
-    L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Virtualization\\GuestCommunicationServices"
-    L"\\{00019e10-facb-11e6-bd58-64006a7986d3}";
+/* Windows only delivers guest connections over the Hyper-V socket to
+ * registered service IDs.  A vsock port's ID is this template with the port
+ * as its first field, so 106000 (0x19E10) is {00019e10-facb-...}. */
+const wchar_t kHvSocketParent[] =
+    L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Virtualization\\GuestCommunicationServices";
+const wchar_t kHvSocketTemplate[] = L"{00000000-facb-11e6-bd58-64006a7986d3}";
+
+inline std::wstring HvSocketKey(unsigned vsockPort)
+{
+    wchar_t buf[48];
+    wsprintfW(buf, L"\\{%08x-facb-11e6-bd58-64006a7986d3}", vsockPort);
+    return std::wstring(kHvSocketParent) + buf;
+}
 
 /* Per-user data lives in files, not in the registry, so that it can be found
  * and removed for users who are not logged in. */

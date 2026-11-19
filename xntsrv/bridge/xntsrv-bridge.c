@@ -6,8 +6,9 @@
  * Linux guest reaches as AF_VSOCK.  This program listens on one or more
  * Unix sockets inside the guest and forwards each connection to the host.
  *
- * It is deliberately generic (any number of LISTEN=TARGET mappings) so the
- * same binary can carry other per-session sockets later, such as audio.
+ * It is deliberately generic (any number of LISTEN=TARGET mappings): the
+ * install script gives it X's socket and the audio (PulseAudio) one, which
+ * the host relays to its audio server.  With no mappings it carries X only.
  *
  * SPDX-License-Identifier: MIT
  */

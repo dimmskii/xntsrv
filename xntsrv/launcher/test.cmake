@@ -35,6 +35,32 @@ expect(0 "srv.exe :0 "                              -n --no-auth --server ${S})
 
 # Errors and informational options.
 expect(0 "srv.exe :0 -multiwindow "                 ${BASE} --no-appearance)
+expect(0 "srv.exe :0 -multiwindow [^\n]*\n$"        ${BASE} --no-audio)
+expect(0 "srv.exe :0 -multiwindow [^\n]*\n$"        ${BASE} -A)
+expect(0 "srv.exe :5 "                              ${BASE} -Ad5)
+
+# With the audio component beside the launcher, a second line shows how the
+# audio server would be started; -A leaves it out.  (Skipped if something on
+# this machine already listens on the audio port: then none is started.)
+get_filename_component(xdir "${XNTSRV}" DIRECTORY)
+get_filename_component(xname "${XNTSRV}" NAME)
+set(adir "${xdir}/audio-test")
+file(REMOVE_RECURSE "${adir}")
+file(MAKE_DIRECTORY "${adir}/audio/bin")
+file(COPY "${XNTSRV}" DESTINATION "${adir}")
+file(WRITE "${adir}/audio/bin/pulseaudio.exe" "")
+set(XNTSRV_REAL "${XNTSRV}")
+set(XNTSRV "${adir}/${xname}")
+execute_process(COMMAND netstat -an OUTPUT_VARIABLE ports)
+if(ports MATCHES "(127\\.0\\.0\\.1|0\\.0\\.0\\.0):4713 ")
+  message("audio-port tests skipped: port 4713 is in use here")
+else()
+  expect(0 "\n\"?[^\n]*audio\\\\bin\\\\pulseaudio.exe\"? -n \"?--file=[^\n]*XNTsrv\\\\audio\\\\xntsrv.pa\"? [^\n]*--exit-idle-time=-1"
+    ${BASE})
+  expect(0 "^C:\\\\x\\\\srv.exe [^\n]*\n$"         ${BASE} -A)
+endif()
+set(XNTSRV "${XNTSRV_REAL}")
+file(REMOVE_RECURSE "${adir}")
 expect(2 "unrecognized option '--bogus'"            ${BASE} --bogus)
 expect(2 "unrecognized option '--listen'"           ${BASE} --listen=tcp)
 expect(2 "requires an argument"                     ${BASE} --display)

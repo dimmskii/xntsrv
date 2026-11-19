@@ -3,7 +3,7 @@
  *
  * Run from an administrator prompt in the folder that holds the XNTsrv
  * programs.  It records the install location, registers the Hyper-V socket
- * service ID and the App Paths entry, blocks inbound network connections to
+ * service IDs (one per channel: X and audio) and the App Paths entry, blocks inbound network connections to
  * the server, and installs and starts the XNTsrv services.  Running it again
  * repairs an existing setup.  xntsrv-unregister undoes it.
  *
@@ -135,10 +135,13 @@ int wmain(int argc, wchar_t **argv)
     else
         ok = false;
 
-    if (SetString(xnt::kHvSocketKey, L"ElementName", L"XNTsrv"))
-        Out(L"Hyper-V socket ID:     registered (port 106000)");
-    else
-        ok = false;
+    for (const xnt::Channel &channel : xnt::kChannels) {
+        if (SetString(xnt::HvSocketKey(channel.vsockPort).c_str(), L"ElementName", wstring(L"XNTsrv ") + channel.name))
+            Out(L"Hyper-V socket ID:     registered (port " + std::to_wstring(channel.vsockPort) + L", " +
+                channel.name + L")");
+        else
+            ok = false;
+    }
 
     if (SetString(xnt::kAppPathsKey, NULL, dir + L"\\xntsrv.exe"))
         Out(L"App Paths entry:       xntsrv.exe");
