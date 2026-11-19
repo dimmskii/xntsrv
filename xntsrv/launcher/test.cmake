@@ -51,7 +51,10 @@ file(COPY "${XNTSRV}" DESTINATION "${adir}")
 file(WRITE "${adir}/audio/bin/pulseaudio.exe" "")
 set(XNTSRV_REAL "${XNTSRV}")
 set(XNTSRV "${adir}/${xname}")
-execute_process(COMMAND netstat -an OUTPUT_VARIABLE ports)
+# Windows' own netstat: from WSL, a plain "netstat" would be the Linux one,
+# which cannot see the ports Windows programs listen on.
+find_program(NETSTAT NAMES netstat.exe netstat)
+execute_process(COMMAND ${NETSTAT} -an OUTPUT_VARIABLE ports)
 if(ports MATCHES "(127\\.0\\.0\\.1|0\\.0\\.0\\.0):4713 ")
   message("audio-port tests skipped: port 4713 is in use here")
 else()
